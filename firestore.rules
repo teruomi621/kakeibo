@@ -1,0 +1,121 @@
+rules_version = '2';
+// みんなの家計簿：Firestore セキュリティルール
+//
+// 守っていること（画面の表示だけに頼らず、サーバー側で強制します）
+// ・ログインしていない人は、何も読めない・書けない
+// ・自分の家計簿を書き込み・修正・削除できるのは本人だけ（友達の家計簿は読むだけ）
+// ・公開の記録を読めるのは、同じグループに入っていて、本人が「見せない」にしていない人だけ
+// ・非公開の記録・予算・よく使う項目・共有設定は、本人しか読めない
+// ・「共有しない」にした費目の記録は、公開側に書き込めない
+// ・グループには、実際にメンバー登録した人しか入れない（グループの一覧は誰も取れない）
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function userDoc(uid) { return /databases/$(database)/documents/users/$(uid); }
+    function shareDoc(uid) { return /databases/$(database)/documents/users/$(uid)/share/main; }
+    // 相手と自分が、少なくとも1つ同じグループに入っているか
+    function sharesGroupWith(uid) {
+      return signedIn() && get(userDoc(uid)).data.groups.hasAny(get(userDoc(request.auth.uid)).data.groups);
+    }
+    // 持ち主が、読もうとしている人を「見せない」にしていないか
+    function notBlockedBy(uid) {
+      return !exists(shareDoc(uid)) || !(request.auth.uid in get(shareDoc(uid)).data.get('blocked', []));
+    }
+    function canReadPublicOf(uid) { return isSelf(uid) || (sharesGroupWith(uid) && notBlockedBy(uid)); }
+    function categoryShareable(uid) {
+      return !exists(shareDoc(uid)) || !(request.resource.data.category in get(shareDoc(uid)).data.get('hiddenCats', []));
+    }
+    function validEntry() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['type', 'date', 'time', 'amount', 'category', 'sub', 'shop', 'memo', 'pay', 'source', 'createdAt'])
+        && d.amount is int && d.amount > 0 && d.amount < 100000000
+        && d.date is string && d.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.category is string && d.category.size() <= 10
+        && (!('type' in d) || d.type in ['expense', 'income'])
+        && (!('time' in d) || (d.time is string && (d.time == '' || d.time.matches('^[0-2][0-9]:[0-5][0-9]$'))))
+        && (!('sub' in d) || (d.sub is string && d.sub.size() <= 16))
+        && (!('shop' in d) || (d.shop is string && d.shop.size() <= 40))
+        && (!('memo' in d) || (d.memo is string && d.memo.size() <= 80))
+        && (!('pay' in d) || (d.pay is string && d.pay.size() <= 12))
+        && (!('source' in d) || d.source == 'paypay');
+    }
+    // グループ一覧は「抜ける（減らす）」か「1つ追加」だけ。追加できるのは、実際にメンバー登録したグループだけ
+    function groupsChangeOk() {
+      let n = request.resource.data.groups;
+      let o = resource == null ? [] : resource.data.groups;
+      return (n.size() <= o.size() && n.hasOnly(o))
+        || (n.size() == o.size() + 1 && n.hasAll(o)
+            && exists(/databases/$(database)/documents/groups/$(n[n.size() - 1])/members/$(request.auth.uid)));
+    }
+    function validUser() {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['name', 'groups', 'current', 'createdAt'])
+        && d.name is string && d.name.size() > 0 && d.name.size() <= 20
+        && d.groups is list && d.groups.size() <= 10
+        && (d.current == null || d.current in d.groups)
+        && groupsChangeOk();
+    }
+
+    match /users/{uid} {
+      // 名前とグループ一覧は、同じグループの人が読める（名前を表示するため）
+      allow read: if isSelf(uid) || sharesGroupWith(uid);
+      allow create, update: if isSelf(uid) && validUser();
+      allow delete: if false;
+
+      // 公開の記録
+      match /entries/{eid} {
+        allow read: if canReadPublicOf(uid);
+        allow create, update: if isSelf(uid) && validEntry() && categoryShareable(uid);
+        allow delete: if isSelf(uid);
+      }
+      // 非公開の記録（本人だけ）
+      match /private/{eid} {
+        allow read, delete: if isSelf(uid);
+        allow create, update: if isSelf(uid) && validEntry();
+      }
+      // 予算・よく使う項目・支出ゼロの日（本人だけ）
+      match /prefs/{pid} {
+        allow read: if isSelf(uid);
+        allow write: if isSelf(uid)
+          && request.resource.data.keys().hasOnly(['budget', 'favs', 'catBudgets', 'noSpend'])
+          && (!('budget' in request.resource.data) || (request.resource.data.budget is int && request.resource.data.budget >= 0))
+          && (!('favs' in request.resource.data) || (request.resource.data.favs is list && request.resource.data.favs.size() <= 20))
+          && (!('catBudgets' in request.resource.data) || request.resource.data.catBudgets is map)
+          && (!('noSpend' in request.resource.data) || (request.resource.data.noSpend is list && request.resource.data.noSpend.size() <= 400));
+      }
+      // 共有設定（本人だけが読み書き。ほかの人の権限チェックにはルールの中からだけ使われます）
+      match /share/{sid} {
+        allow read: if isSelf(uid);
+        allow write: if isSelf(uid)
+          && request.resource.data.keys().hasOnly(['defaultPublic', 'hiddenCats', 'blocked'])
+          && (!('defaultPublic' in request.resource.data) || request.resource.data.defaultPublic is bool)
+          && (!('hiddenCats' in request.resource.data) || (request.resource.data.hiddenCats is list && request.resource.data.hiddenCats.size() <= 20))
+          && (!('blocked' in request.resource.data) || (request.resource.data.blocked is list && request.resource.data.blocked.size() <= 200));
+      }
+    }
+
+    match /groups/{gid} {
+      function isMember() {
+        return signedIn() && exists(/databases/$(database)/documents/groups/$(gid)/members/$(request.auth.uid));
+      }
+      // コードを知っている人だけがグループを開ける（一覧は取れない）
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && gid.size() == 10
+        && request.resource.data.keys().hasOnly(['name', 'createdBy', 'createdAt'])
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.name is string && request.resource.data.name.size() <= 24;
+      allow update, delete: if false;
+
+      match /members/{uid} {
+        allow read: if isMember() || isSelf(uid);
+        allow create: if isSelf(uid) && request.resource.data.keys().hasOnly(['joinedAt'])
+          && exists(/databases/$(database)/documents/groups/$(gid));
+        allow update: if false;
+        allow delete: if isSelf(uid);
+      }
+    }
+  }
+}
