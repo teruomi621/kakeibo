@@ -106,7 +106,7 @@ button { cursor: pointer; touch-action: manipulation; -webkit-user-select: none;
 
 /* ---------- floating tab bar ---------- */
 .tabbar {
-  position: absolute; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 10;
+  position: fixed; left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); z-index: 10; touch-action: none; max-width: 616px; margin-inline: auto;
   height: var(--tabbar-h); display: grid; grid-template-columns: 1fr 1fr 76px 1fr 1fr; align-items: center;
   background: var(--card); background: color-mix(in srgb, var(--card) 88%, transparent); -webkit-backdrop-filter: saturate(1.6) blur(18px); backdrop-filter: saturate(1.6) blur(18px);
   border: 1px solid var(--line); border-radius: 22px; box-shadow: var(--sh-2);
