@@ -552,6 +552,26 @@ const skRows = (n = 4) => h("div", { class: "rows loading-delay", "aria-busy": "
 const skCard = (hgt = 160) => h("div", { class: "card loading-delay", "aria-busy": "true" }, h("div", { class: "sk line", style: "width:30%" }), h("div", { class: "sk", style: `height:${hgt}px;margin-top:12px;border-radius:14px` }));
 
 /* ================= pull to refresh ================= */
+// iOS Safari still rubber-bands the whole page when a drag starts on something that can't scroll
+// (the top bar, the tab bar, a short screen). Block those drags; real scroll areas are untouched.
+function lockPageBounce() {
+  const canScroll = (el, dx, dy) => {
+    for (let n = el; n && n !== document.body; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (Math.abs(dy) >= Math.abs(dx) && /(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1) return true;
+      if (Math.abs(dx) > Math.abs(dy) && /(auto|scroll)/.test(cs.overflowX) && n.scrollWidth > n.clientWidth + 1) return true;
+      if (n.matches("input, textarea, select, [contenteditable]")) return true;
+    }
+    return false;
+  };
+  let x0 = 0, y0 = 0;
+  document.addEventListener("touchstart", (e) => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive: true });
+  document.addEventListener("touchmove", (e) => {
+    if (e.touches.length > 1 || e.defaultPrevented) return; // keep pinch-zoom
+    const dx = e.touches[0].clientX - x0, dy = e.touches[0].clientY - y0;
+    if (!canScroll(e.target, dx, dy)) e.preventDefault();
+  }, { passive: false });
+}
 function wirePullToRefresh() {
   const ptr = $("ptr"), area = $("screens");
   let y0 = null, x0 = 0, dist = 0, active = false, ready = false;
@@ -1757,6 +1777,7 @@ async function boot() {
   window.addEventListener("resize", moveTabIndicator);
   window.addEventListener("online", () => toast("オンラインに戻りました"));
   window.addEventListener("offline", () => warn("オフラインです。記録は通信が戻ると保存されます"));
+  lockPageBounce();
   wirePullToRefresh();
   moveTabIndicator();
   const configured = !!(firebaseConfig && firebaseConfig.apiKey);

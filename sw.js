@@ -1,5 +1,5 @@
 // Keeps the app shell available offline. Data itself is cached by Firestore.
-const VERSION = "kakeibo-v8";
+const VERSION = "kakeibo-v9";
 const SHELL = ["./", "index.html", "app.js", "receipt.js", "config.js", "manifest.webmanifest",
   "icons/icon-192.png", "icons/icon-512.png", "icons/apple-touch-icon.png"];
 
