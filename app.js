@@ -1176,7 +1176,7 @@ function openEntry(edit, preset = {}) {
     pub: edit ? !edit.priv : !!S.share.defaultPublic, catTouched: isEdit, fromFav: false, busy: false,
   };
   const catsFor = () => st.type === "income" ? INCOME_CATS : CATS;
-  const body = h("div", { class: "entry stack", style: "gap:10px" });
+  const body = h("div", { class: "entry stack", style: "gap:8px" });
   const saveBtn = h("button", { type: "button", class: "save", id: "saveBtn" }, ic("check", { "stroke-width": 3 }), isEdit ? "更新" : "保存");
   const favRow = h("div", { class: "favrow", "aria-label": "よく使う項目" });
   const keypad = h("div", { class: "keypad", role: "group", "aria-label": "金額の入力" },
@@ -1186,7 +1186,7 @@ function openEntry(edit, preset = {}) {
   const footer = h("div", { class: "keypad-wrap" }, favRow, keypad);
   let handle;
   // inputs live outside draw() so typing never loses focus
-  const shopIn = h("input", { class: "text", id: "enShop", maxlength: 40, placeholder: "店舗名（例：スターバックス）", value: st.shop, enterkeyhint: "next", "aria-label": "店舗名" });
+  const shopIn = h("input", { class: "text", id: "enShop", maxlength: 40, placeholder: "店舗名", value: st.shop, enterkeyhint: "next", "aria-label": "店舗名" });
   const memoIn = h("input", { class: "text", id: "enMemo", maxlength: 80, placeholder: "メモ", value: st.memo, enterkeyhint: "done", "aria-label": "メモ" });
   shopIn.addEventListener("input", () => { st.shop = shopIn.value; });
   memoIn.addEventListener("input", () => { st.memo = memoIn.value; });
@@ -1212,27 +1212,31 @@ function openEntry(edit, preset = {}) {
     if (locked) st.pub = false;
     const c = catOf(st.cat);
     const dtLabel = `${dayLabel(st.date).replace(/（.）/, "")} ${st.time ? (TIME_PRESETS.find(p => p[1] === st.time)?.[0] || st.time) : "今"}`;
-    fill(body, 
-      h("div", { class: "head" },
-        h("div", { style: "width:150px" }, segmented([["expense", "支出"], ["income", "収入"]], st.type, (v) => { st.type = v; st.sub = ""; st.cat = (v === "income" ? INCOME_CATS : CATS)[0].id; if (v === "income") st.pub = false; setTimeout(draw, 120); }, "支出か収入か")),
-        h("h2", { class: "sr", style: "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)" }, isEdit ? "記録を編集" : "記録する"),
+    const payLabel = st.pay ? st.pay.replace("クレジットカード", "クレカ").replace("交通系IC", "交通IC") : "支払方法";
+    fill(body,
+      // row 1: expense/income, receipt camera, close
+      h("div", { class: "toprow" },
+        h("div", { class: "typeseg" }, segmented([["expense", "支出"], ["income", "収入"]], st.type, (v) => { st.type = v; st.sub = ""; st.cat = (v === "income" ? INCOME_CATS : CATS)[0].id; if (v === "income") st.pub = false; setTimeout(draw, 120); }, "支出か収入か")),
+        h("h2", { style: "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)" }, isEdit ? "記録を編集" : "記録する"),
         h("div", { style: "flex:1" }),
-        !isEdit ? h("button", { type: "button", class: "iconbtn press", "aria-label": "レシートを読み取る", onclick: () => $("receiptFile").click() }, ic("camera")) : null,
-        h("button", { type: "button", class: "iconbtn press", "aria-label": "閉じる", onclick: () => closeSheet(handle) }, ic("x"))),
+        !isEdit ? h("button", { type: "button", class: "iconbtn sm press", "aria-label": "レシートを読み取る", onclick: () => $("receiptFile").click() }, ic("camera")) : null,
+        h("button", { type: "button", class: "iconbtn sm press", "aria-label": "閉じる", onclick: () => closeSheet(handle) }, ic("x"))),
       amountBtn,
       h("div", { class: "cats", role: "radiogroup", "aria-label": "カテゴリ" }, cats.map(k => h("button", { type: "button", class: "cat", role: "radio", "aria-checked": String(k.id === st.cat),
         onclick: () => { if (st.cat !== k.id) { st.cat = k.id; st.sub = ""; } st.catTouched = true; if (st.type === "expense") ls.set("kakeibo.cat", k.id); buzz(5); draw(); } },
         h("span", { class: "icon", style: `background:${cvar(k.c)}` }, k.g), h("span", null, k.id)))),
       h("div", { class: "chips subs", role: "radiogroup", "aria-label": `${c.id}の内容` },
         [["", "指定なし"], ...c.subs.map(s => [s, s])].map(([v, l]) => h("button", { type: "button", class: "chip", role: "radio", "aria-checked": String(st.sub === v), onclick: () => { st.sub = v; buzz(4); draw(); } }, l))),
-      h("div", { class: "fields" },
-        h("button", { type: "button", class: "fbtn press", onclick: () => dateTimeSheet(st, draw) }, ic("clock"), h("div", null, h("small", null, "日時"), h("span", null, dtLabel))),
-        h("button", { type: "button", class: "fbtn press", onclick: () => paySheet(st, draw) }, ic("card"), h("div", null, h("small", null, "支払方法"), h("span", null, st.pay || "選ぶ"))),
-        h("div", { class: "wide" }, shopAC), h("div", { class: "wide" }, memoAC),
-        h("div", { class: "wide vis" }, h("div", { class: "t" }, h("strong", null, st.pub ? "友達に公開" : "非公開（自分だけ）"),
-          h("small", null, locked ? `「${st.cat}」は共有しない設定です` : st.pub ? "同じグループの友達が見られます" : "友達には見えません。集計にも入りません")),
-          switchEl("enPub", st.pub, (v) => { st.pub = v; buzz(5); draw(); }, "友達に公開する", locked))),
-      isEdit ? h("button", { type: "button", class: "btn danger press", style: "margin-top:4px", onclick: async () => {
+      // row: date/time, payment, visibility — compact chips so the whole sheet fits a phone screen
+      h("div", { class: "metarow" },
+        h("button", { type: "button", class: "mchip press", "aria-label": `日時：${dtLabel}`, onclick: () => dateTimeSheet(st, draw) }, ic("clock"), h("span", null, dtLabel)),
+        h("button", { type: "button", class: "mchip press" + (st.pay ? "" : " unset"), "aria-label": `支払方法：${st.pay || "未選択"}`, onclick: () => paySheet(st, draw) }, ic("card"), h("span", null, payLabel)),
+        h("button", { type: "button", class: "mchip vischip press" + (st.pub ? " on" : ""), "aria-pressed": String(st.pub), disabled: locked ? true : null,
+          "aria-label": locked ? `「${st.cat}」は共有しない設定のため非公開` : st.pub ? "友達に公開（タップで非公開にする）" : "非公開（タップで友達に公開する）",
+          onclick: () => { st.pub = !st.pub; buzz(5); draw(); toast(st.pub ? "この記録は同じグループの友達に公開されます" : "この記録は自分にだけ見えます"); } },
+          ic(st.pub ? "eye" : "lock"), h("span", null, st.pub ? "公開" : "非公開"))),
+      h("div", { class: "tworow" }, h("div", null, shopAC), h("div", null, memoAC)),
+      isEdit ? h("button", { type: "button", class: "btn danger small press", style: "align-self:flex-start", onclick: async () => {
         if (await confirmModal({ title: "この記録を削除しますか？", body: `${titleOf(edit)}・${yen(edit.amount)}`, okLabel: "削除", danger: true })) { closeSheet(handle); deleteWithUndo(edit); }
       } }, "この記録を削除") : null);
     drawAmount(); drawFavs();
@@ -1290,7 +1294,7 @@ function openEntry(edit, preset = {}) {
   const onBlur = () => setTimeout(() => { if (!handle.el.contains(document.activeElement) || !document.activeElement.matches("input:not([type=checkbox])")) handle.el.classList.remove("typing"); }, 60);
   const vv = window.visualViewport;
   const onVV = () => { const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); handle.el.style.setProperty("--kb", kb > 80 ? kb + "px" : "0px"); };
-  handle = openSheet(body, { tall: true, footer, label: isEdit ? "記録を編集" : "記録する", onClose: () => { vv?.removeEventListener("resize", onVV); S.entryState = null; } });
+  handle = openSheet(body, { footer, label: isEdit ? "記録を編集" : "記録する", onClose: () => { vv?.removeEventListener("resize", onVV); S.entryState = null; } });
   handle.el.addEventListener("focusin", onFocus); handle.el.addEventListener("focusout", onBlur);
   vv?.addEventListener("resize", onVV);
   S.entryState = { st, draw: () => { shopIn.value = st.shop; memoIn.value = st.memo; draw(); } };
