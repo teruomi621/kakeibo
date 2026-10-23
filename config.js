@@ -1,10 +1,10 @@
-// Firebase の設定をここに貼り付けます（セットアップ手順の「4」を参照）。
-// apiKey が空のままだと、サンプルデータで動く「デモ表示」になります。
+// Firebase の設定（公開されても問題ない値です。守りは firestore.rules が担当します）。
+// apiKey を空にすると、サンプルデータで動く「デモ表示」になります。
 export const firebaseConfig = {
-  apiKey: "",
-  authDomain: "",
-  projectId: "",
-  storageBucket: "",
-  messagingSenderId: "",
-  appId: ""
+  apiKey: "AIzaSyDzEJUttxbT-5V7yVXshVJ9SKKrOIaf-Hs",
+  authDomain: "minna-kakeibo.firebaseapp.com",
+  projectId: "minna-kakeibo",
+  storageBucket: "minna-kakeibo.firebasestorage.app",
+  messagingSenderId: "484215436232",
+  appId: "1:484215436232:web:dc702d7f292f0f9c7f46fd"
 };
