@@ -49,6 +49,8 @@ const catOf = (id) => {
   if (c) return withExtra(c);
   return { id: id || "その他", g: (id || "他").slice(0, 1), c: 8, subs: ["その他"] }; // a friend's own category
 };
+// New records are public unless the user turned the default off in 共有設定.
+const defPub = () => S.share?.defaultPublic !== false;
 const PAYS = ["現金", "クレジットカード", "PayPay", "交通系IC", "電子マネー", "デビット", "口座振替", "その他"];
 const TIME_PRESETS = [["朝", "08:00"], ["昼", "12:30"], ["おやつ", "15:00"], ["夜", "19:00"], ["深夜", "23:00"]];
 // Card colours for people (self is always the first one).
@@ -235,7 +237,7 @@ function demoStore() {
   const groups = { ITSUMEN123: { name: "いつメン", members: ["me", "sakura", "ken"] }, KAZOKU4567: { name: "家族", members: ["me", "mama"] } };
   const pub = {}, priv = {}, prefs = { me: { budget: 90000, catBudgets: { 食費: 35000, 交通費: 8000, 娯楽: 12000, 日用品: 6000 }, noSpend: [],
     favs: [{ c: "食費", s: "昼ごはん", m: "", sh: "社食", a: 450, p: "現金" }, { c: "交通費", s: "電車", m: "", sh: "JR", a: 0, p: "交通系IC" }, { c: "食費", s: "カフェ", m: "", sh: "スターバックス", a: 0, p: "PayPay" }] } };
-  const share = { me: { defaultPublic: false, hiddenCats: ["健康・医療"], blocked: [] } };
+  const share = { me: { defaultPublic: true, hiddenCats: ["健康・医療"], blocked: [] } };
   const reactions = {};
   const T = [
     ["食費", "スーパー・食料品", ["ライフ", "イオン", "業務スーパー"], [800, 4200], ["クレジットカード", "PayPay"]],
@@ -304,6 +306,7 @@ function demoStore() {
     async updateEntry(uid, id, data, p) { const x = box(uid, p).find(e => e.id === id); if (x) Object.assign(x, data); bump(); },
     async deleteEntry(uid, id, p) { const b = box(uid, p); const i = b.findIndex(e => e.id === id); if (i >= 0) b.splice(i, 1); bump(); },
     async moveEntry(uid, id, data, fromP, toP) { await this.deleteEntry(uid, id, fromP); box(uid, toP).push({ id, ...data, t: Date.now() }); bump(); },
+    async publicizeAll(uid, skip) { const moved = box(uid, true).filter(x => !skip.includes(x.category)); priv[uid] = box(uid, true).filter(x => skip.includes(x.category)); box(uid, false).push(...moved); bump(); return moved.length; },
     async privatize(uid, filter) { const moved = box(uid, false).filter(filter); pub[uid] = box(uid, false).filter(x => !filter(x)); box(uid, true).push(...moved); bump(); return moved.length; },
     async existingIds(uid) { return new Set(box(uid, false).concat(box(uid, true)).map(e => e.id)); },
     async importEntries(uid, rows, p) { rows.forEach(r => box(uid, p).push({ ...r, t: Date.now() })); bump(); return rows.length; },
@@ -396,6 +399,16 @@ async function firebaseStore() {
       await b.commit();
     },
     // Move every public entry matching `filter` into the private collection (used when a category stops being shared).
+    async publicizeAll(uid, skip) {
+      const s = await getDocs(eCol(uid, true));
+      const docs = s.docs.filter(d => !skip.includes(d.data().category));
+      for (let i = 0; i < docs.length; i += 200) {
+        const b = writeBatch(db);
+        docs.slice(i, i + 200).forEach(d => { b.set(doc(eCol(uid, false), d.id), d.data()); b.delete(d.ref); });
+        await b.commit();
+      }
+      return docs.length;
+    },
     async privatize(uid, filter) {
       const s = await getDocs(eCol(uid, false));
       const docs = s.docs.filter(d => filter(normEntry(d.data())));
@@ -1408,7 +1421,7 @@ function openEntry(edit, preset = {}) {
   const st = {
     type: edit?.type || "expense", amount: edit ? String(edit.amount) : "", cat: edit?.category || (expCats().some(c => c.id === ls.get("kakeibo.cat")) ? ls.get("kakeibo.cat") : "食費"),
     sub: edit?.sub || "", date: edit?.date || preset.date || today(), time: edit?.time || "", shop: edit?.shop || "", memo: edit?.memo || "", pay: edit?.pay || "",
-    pub: edit ? !edit.priv : !!S.share.defaultPublic, catTouched: isEdit, fromFav: false, busy: false,
+    pub: edit ? !edit.priv : defPub(), catTouched: isEdit, fromFav: false, busy: false,
   };
   const catsFor = () => st.type === "income" ? incCats() : expCats();
   let cont = ls.get("kakeibo.cont") === "1";
@@ -1452,7 +1465,7 @@ function openEntry(edit, preset = {}) {
     fill(body,
       // row 1: expense / income
       h("div", { class: "toprow" },
-        h("div", { class: "typeseg" }, segmented([["expense", "支出"], ["income", "収入"]], st.type, (v) => { st.type = v; st.sub = ""; st.cat = (v === "income" ? incCats() : expCats())[0].id; if (v === "income") st.pub = false; setTimeout(draw, 120); }, "支出か収入か")),
+        h("div", { class: "typeseg" }, segmented([["expense", "支出"], ["income", "収入"]], st.type, (v) => { st.type = v; st.sub = ""; st.cat = (v === "income" ? incCats() : expCats())[0].id; if (!isEdit) st.pub = defPub(); setTimeout(draw, 120); }, "支出か収入か")),
         h("div", { style: "flex:1" }),
         !isEdit ? h("button", { type: "button", class: "mchip contchip press" + (cont ? " on" : ""), "aria-pressed": String(cont),
           onclick: () => { cont = !cont; ls.set("kakeibo.cont", cont ? "1" : null); buzz(4); draw(); toast(cont ? "保存したあと、続けて次を入力できます" : "保存したら入力画面を閉じます"); } }, cont ? "✓ 続けて入力" : "続けて入力") : null,
@@ -1665,12 +1678,16 @@ function shareSheet() {
         blocked.size ? h("p", { class: "help" }, `見せない人：${[...blocked].map(nameOf).join("・")}`) : null,
         h("p", { class: "help", style: "margin-top:6px" }, "予算、よく使う項目、支出ゼロの日、非公開の記録は、誰にも見えません。")),
       h("div", { class: "group" },
-        h("div", { class: "cell" }, h("span", { class: "grow" }, h("strong", null, "新しい記録を最初から公開する"), h("small", null, "オフのときは、記録するたびに公開を選びます（おすすめ）")),
-          switchEl("shDefault", !!sh.defaultPublic, async (v, el) => {
+        h("div", { class: "cell" }, h("span", { class: "grow" }, h("strong", null, "新しい記録を最初から公開する"), h("small", null, "オフのときは、記録するたびに公開を選びます")),
+          switchEl("shDefault", sh.defaultPublic !== false, async (v, el) => {
             const okd = await confirmModal({ title: v ? "新しい記録を最初から公開にしますか？" : "新しい記録を最初から非公開にしますか？", body: v ? "記録するたびに、初めから「友達に公開」がオンになります。" : "記録するたびに、自分で公開を選ぶようになります。", okLabel: "変更する" });
             if (!okd) { el.checked = !v; return; }
             try { await S.store.setShare(me(), { defaultPublic: v }); ok("共有設定を更新しました"); } catch { el.checked = !v; fail("保存できませんでした"); }
-          }, "新しい記録を最初から公開する"))),
+          }, "新しい記録を最初から公開する")),
+        h("button", { type: "button", class: "cell press", style: "width:100%;border:none;background:none;text-align:left", onclick: async () => {
+          if (!await confirmModal({ title: "今までの非公開の記録をすべて公開しますか？", body: "同じグループの友達に見えるようになります。「共有しない」にした費目の記録は非公開のままです。", okLabel: "すべて公開する" })) return;
+          try { const k = await S.store.publicizeAll(me(), [...hidden]); ok(k ? `${k}件を公開にしました` : "非公開の記録はありませんでした"); } catch { fail("できませんでした。通信状態を確認してください"); }
+        } }, h("span", { class: "grow" }, h("strong", null, "今までの非公開の記録をすべて公開する"), h("small", null, "あとから記録ごとに非公開に戻せます")))),
       h("div", { class: "group" },
         accRow("費目ごとの共有", hidden.size ? `${hidden.size}個の費目を共有していません` : "すべての費目を共有できます",
           h("div", null, allCats().map(c => h("div", { class: "cell" }, catIcon(c.id, true), h("span", { class: "grow" }, h("strong", null, c.id), h("small", null, incCats().some(x => x.id === c.id) ? "収入" : "支出")),
@@ -1808,7 +1825,7 @@ function helpSheet() {
       h("li", null, "続けて入力：記録画面の「続けて入力」をオンにすると、保存したあとも画面が閉じずに次を入れられます。"),
       h("li", null, "いいね・コメント：友達の公開された記録をタップすると、いいねやひとことコメントができます。"),
       h("li", null, "更新：画面の上から下に引っ張ると、最新の情報に更新します。"),
-      h("li", null, "公開：記録は最初は非公開です。公開した記録だけが友達に見えます。費目ごと・友達ごとの設定は「共有設定」から。"),
+      h("li", null, "公開：記録は最初から公開になり、同じグループの友達に見えます。見せたくない記録は記録画面で「非公開」に。費目ごと・友達ごとの設定は「共有設定」から。"),
       h("li", null, "安全：見られる範囲はサーバー側のルールでも守っています。非公開の記録・予算・よく使う項目は、ほかの人のスマホには一切送られません。"),
       h("li", null, "レシートの読み取りはスマホの中で行い、写真はどこにも送られません。PayPayの取り込みも、PayPayのパスワードは使いません。")))), { label: "使い方" });
 }
@@ -1869,7 +1886,7 @@ function catSelect(type, cur, sub, id) {
     c.subs.map(sb => h("option", { value: c.id + "|" + sb, selected: c.id === cur && sb === sub ? true : null }, `${c.id} › ${sb}`)))));
 }
 function recurringSheet() {
-  let handle, type = "expense", pub = false;
+  let handle, type = "expense", pub = defPub();
   const items = () => Array.isArray(S.prefs.recurring) ? S.prefs.recurring : [];
   const box = h("div");
   const name = h("input", { class: "text", id: "rcName", maxlength: 40, placeholder: "名前（例：家賃・Netflix）" });
@@ -1891,7 +1908,7 @@ function recurringSheet() {
     if (!a) { err.textContent = "金額を入れてください"; return; }
     if (items().length >= 30) { err.textContent = "登録できるのは30件までです"; return; }
     const [cat, sub] = $("rcCat").value.split("|");
-    const it = { id: Math.random().toString(36).slice(2, 9), name: name.value.trim().slice(0, 40), amount: a, cat, sub: sub || "", pay: pay.value, pub: type === "income" ? false : pub, day: Number(day.value), type, since: ymKey(thisMonth()) };
+    const it = { id: Math.random().toString(36).slice(2, 9), name: name.value.trim().slice(0, 40), amount: a, cat, sub: sub || "", pay: pay.value, pub, day: Number(day.value), type, since: ymKey(thisMonth()) };
     try {
       await S.store.setPrefs(me(), { recurring: [...items(), it] });
       S.prefs.recurring = [...items().filter(x => x.id !== it.id), it];
@@ -1907,7 +1924,7 @@ function recurringSheet() {
     h("div", { class: "card stack", style: "gap:8px" }, h("p", { class: "label", style: "margin:0" }, "新しく登録"),
       segmented([["expense", "支出"], ["income", "収入"]], type, (v) => { type = v; drawCat(); }, "支出か収入か"),
       name, h("div", { class: "tworow" }, h("div", null, amount), h("div", null, day)), catWrap, pay,
-      h("div", { class: "vis" }, h("div", { class: "t" }, h("strong", null, "友達に公開する"), h("small", null, "支出だけ。オフなら自分だけに見えます")), switchEl("rcPub", false, (v) => { pub = v; }, "友達に公開する")),
+      h("div", { class: "vis" }, h("div", { class: "t" }, h("strong", null, "友達に公開する"), h("small", null, "オフなら自分だけに見えます")), switchEl("rcPub", pub, (v) => { pub = v; }, "友達に公開する")),
       err, h("button", { type: "button", class: "btn primary press", onclick: add }, "登録する"))), { tall: true, label: "固定費" });
 }
 
@@ -1998,7 +2015,7 @@ function importSheet() {
     h("p", { class: "help" }, "ファイルはスマホの中で読み取ります。同じ取引を二度取り込むことはありません。")), { label: "PayPayの取り込み" });
 }
 function importReview(rows) {
-  let pub = false, handle;
+  let pub = defPub(), handle;
   const summary = h("div", { style: "display:flex;justify-content:space-between;align-items:baseline" });
   const go2 = h("button", { type: "button", class: "btn primary press" });
   const upd = () => {
@@ -2027,7 +2044,7 @@ function importReview(rows) {
   upd();
   handle = openSheet(h("div", { class: "stack" }, h("div", { class: "head" }, h("h2", null, "取り込む記録を確認")),
     h("p", { class: "help" }, "支払いだけに最初からチェックが入っています。カテゴリはお店の名前から自動で選んでいます。"),
-    summary, h("div", { class: "vis" }, h("div", { class: "t" }, h("strong", null, "友達に公開する"), h("small", null, "オフなら非公開で取り込みます")), switchEl("impPub", false, (v) => { pub = v; }, "友達に公開する")),
+    summary, h("div", { class: "vis" }, h("div", { class: "t" }, h("strong", null, "友達に公開する"), h("small", null, "オフなら非公開で取り込みます")), switchEl("impPub", pub, (v) => { pub = v; }, "友達に公開する")),
     list, go2), { tall: true, label: "取り込む記録を確認" });
 }
 
@@ -2118,7 +2135,7 @@ function showStart() {
   const box = $("full"); box.hidden = false;
   fill(box, h("div", { class: "inner gutter" }, h("div", { class: "mark" }, ic("people")),
     h("h1", null, `ようこそ、${S.me?.name || ""}さん`),
-    h("p", { class: "lead" }, "友達と見せ合うには、グループを作るか、友達から届いた招待コードで参加します。記録は最初は非公開で、公開したものだけが友達に見えます。"),
+    h("p", { class: "lead" }, "友達と見せ合うには、グループを作るか、友達から届いた招待コードで参加します。記録は最初から公開で、同じグループの友達に見えます（記録ごとに非公開にもできます）。"),
     h("button", { type: "button", class: "btn primary press", onclick: () => { hideFull(); createGroupSheet(); } }, "グループを作る"),
     h("button", { type: "button", class: "btn press", onclick: () => { hideFull(); joinSheet(S.joinParam); } }, "招待コードで参加"),
     h("button", { type: "button", class: "linklike", onclick: () => { S.startDismissed = true; hideFull(); } }, "まずはひとりで使う")));
