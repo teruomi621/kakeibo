@@ -455,6 +455,23 @@ input[type=search]::-webkit-search-cancel-button, input[type=search]::-webkit-se
 .entry .amount .y { font-size: 1.2rem; color: var(--muted); font-weight: 600; }
 .entry .amount .v { font-size: 2.3rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; overflow-wrap: anywhere; }
 .entry .amount .v.ph { color: var(--line); }
+.entry .amount .expr { margin-right: auto; align-self: center; font-size: .82rem; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.keypad button[data-k="plus"] { font-size: 1.5rem; color: var(--brand); }
+#menuBtn { position: relative; }
+#menuBtn .dot { position: absolute; top: 3px; right: 1px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--danger); color: #fff; font-size: .62rem; font-weight: 700; display: grid; place-items: center; line-height: 1; }
+.mi .count { margin-left: auto; background: var(--danger); color: #fff; border-radius: 10px; font-size: .7rem; font-weight: 700; padding: 1px 7px; }
+.boot.splash { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 22px; padding-bottom: 6vh; }
+.boot.splash img { width: 26vw; max-width: 112px; height: auto; border-radius: 22%; box-shadow: var(--sh-2); }
+.boot.splash strong { font-size: 1.35rem; letter-spacing: .02em; }
+.alertcard { display: flex; gap: 12px; align-items: flex-start; text-align: left; width: 100%; border: 1px solid var(--warn); background: var(--warn-soft); }
+.alertcard .ic { width: 34px; height: 34px; border-radius: 10px; background: var(--card); color: var(--warn); display: grid; place-items: center; flex: none; }
+.alertcard .ic svg { width: 20px; height: 20px; }
+.alertcard strong { display: block; margin-bottom: 4px; color: var(--ink); }
+.alertcard .al { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); color: var(--ink); }
+.alertcard .al.over .num { color: var(--danger); font-weight: 700; }
+.goalrow { display: flex; gap: 10px; align-items: center; padding: 6px 0; }
+.goalrow .h { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); margin-bottom: 4px; }
+.goalrow .bar { height: 8px; }
 .entry .amount.inc .v { color: var(--brand); }
 .entry .amount.bad { animation: shake 300ms var(--ease); }
 .cats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 2px 4px; }
@@ -609,6 +626,16 @@ details.ocrtext pre { white-space: pre-wrap; font-size: .75rem; background: var(
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="家計簿">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 667px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/splash/splash-750x1334.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 2) and (orientation: portrait)" href="icons/splash/splash-828x1792.png">
+<link rel="apple-touch-startup-image" media="(device-width: 375px) and (device-height: 812px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1125x2436.png">
+<link rel="apple-touch-startup-image" media="(device-width: 414px) and (device-height: 896px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1242x2688.png">
+<link rel="apple-touch-startup-image" media="(device-width: 390px) and (device-height: 844px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1170x2532.png">
+<link rel="apple-touch-startup-image" media="(device-width: 428px) and (device-height: 926px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1284x2778.png">
+<link rel="apple-touch-startup-image" media="(device-width: 393px) and (device-height: 852px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1179x2556.png">
+<link rel="apple-touch-startup-image" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1290x2796.png">
+<link rel="apple-touch-startup-image" media="(device-width: 402px) and (device-height: 874px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1206x2622.png">
+<link rel="apple-touch-startup-image" media="(device-width: 440px) and (device-height: 956px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)" href="icons/splash/splash-1320x2868.png">
 <link rel="icon" href="icons/icon-192.png">
 </head>
 <body>
@@ -646,7 +673,7 @@ details.ocrtext pre { white-space: pre-wrap; font-size: .75rem; background: var(
 <div class="toasts" id="toastRoot" role="status" aria-live="polite"></div>
 <div class="sr" id="alertRoot" role="alert" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)"></div>
 <input type="file" id="receiptFile" accept="image/*" hidden>
-<div class="full" id="full"><div class="boot"><span class="sk circle" style="width:44px;height:44px"></span></div></div>
+<div class="full" id="full"><div class="boot splash"><img src="icons/icon-192.png" alt="" width="96" height="96"><strong>みんなの家計簿</strong></div></div>
 <script type="module" src="app.js"></script>
 <!--BODY-END-->
 </body>

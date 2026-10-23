@@ -50,6 +50,8 @@ const catOf = (id) => {
   return { id: id || "その他", g: (id || "他").slice(0, 1), c: 8, subs: ["その他"] }; // a friend's own category
 };
 // New records are public unless the user turned the default off in 共有設定.
+// "1200+350" → 1550 (the keypad's + key lets you add several amounts)
+const amtVal = (v) => String(v || "").split("+").reduce((a, t) => a + (Number(t) || 0), 0);
 const defPub = () => true; // every record is shared with the group (except categories set to 「共有しない」)
 const PAYS = ["現金", "クレジットカード", "PayPay", "交通系IC", "電子マネー", "デビット", "口座振替", "その他"];
 const TIME_PRESETS = [["朝", "08:00"], ["昼", "12:30"], ["おやつ", "15:00"], ["夜", "19:00"], ["深夜", "23:00"]];
@@ -238,7 +240,7 @@ function demoStore() {
   const pub = {}, priv = {}, prefs = { me: { budget: 90000, catBudgets: { 食費: 35000, 交通費: 8000, 娯楽: 12000, 日用品: 6000 }, noSpend: [],
     favs: [{ c: "食費", s: "昼ごはん", m: "", sh: "社食", a: 450, p: "現金" }, { c: "交通費", s: "電車", m: "", sh: "JR", a: 0, p: "交通系IC" }, { c: "食費", s: "カフェ", m: "", sh: "スターバックス", a: 0, p: "PayPay" }] } };
   const share = { me: { defaultPublic: true, hiddenCats: ["健康・医療"], blocked: [] } };
-  const reactions = {};
+  const reactions = {}, goals = {}, inbox = { me: [] };
   const T = [
     ["食費", "スーパー・食料品", ["ライフ", "イオン", "業務スーパー"], [800, 4200], ["クレジットカード", "PayPay"]],
     ["食費", "コンビニ", ["セブン-イレブン", "ローソン", "ファミリーマート"], [150, 900], ["PayPay", "交通系IC"]],
@@ -270,6 +272,7 @@ function demoStore() {
       if (k === 0 ? tday >= 25 : true) priv[uid].push({ id: "s" + n++, date: `${ymKey(ym)}-${pad(Math.min(days, 25))}`, time: "10:00", amount: 210000 + Math.round(R() * 30) * 1000, category: "給与", sub: "給料", shop: "", memo: "", pay: "", type: "income", t: n });
     }
   };
+  setTimeout(() => { const e = pub.me[pub.me.length - 3]; if (e) inbox.me.push({ id: "n0", from: "ken", eid: e.id, kind: "comment", text: "それ美味しいよね！", at: Date.now() - 3600e3 }, { id: "n1", from: "sakura", eid: e.id, kind: "like", text: "", at: Date.now() - 600e3 }); }, 0);
   gen("me", 1); gen("sakura", 1.1); gen("ken", .8); gen("mama", .9);
   priv.me.push({ id: "p1", date: today(), time: "21:30", amount: 3000, category: "娯楽", sub: "ゲーム", shop: "", memo: "ゲーム課金", pay: "クレジットカード", type: "expense", t: 1 });
   const L = new Set(); const bump = () => L.forEach(f => f());
@@ -295,6 +298,11 @@ function demoStore() {
     async getReactions(owner, eid) { return clone(Object.entries(reactions[owner + "/" + eid] || {}).map(([uid, r]) => ({ uid, ...r }))); },
     async setReaction(owner, eid, uid, data) { const k = owner + "/" + eid; reactions[k] = reactions[k] || {}; reactions[k][uid] = { ...data, at: Date.now() }; },
     async deleteReaction(owner, eid, uid) { delete (reactions[owner + "/" + eid] || {})[uid]; },
+    watchInbox(uid, cb) { return watch(() => cb(clone(inbox[uid] || []))); },
+    async notify(owner, data) { (inbox[owner] = inbox[owner] || []).push({ id: "n" + Date.now(), ...data, at: Date.now() }); bump(); },
+    async clearInbox(uid, ids) { inbox[uid] = (inbox[uid] || []).filter(n => !ids.includes(n.id)); bump(); },
+    watchGoal(code, ym, cb) { return watch(() => cb(goals[code + "/" + ym] ? clone(goals[code + "/" + ym]) : null)); },
+    async setGoal(code, ym, uid, amount) { if (amount) goals[code + "/" + ym] = { amount, by: uid, at: Date.now() }; else delete goals[code + "/" + ym]; bump(); },
     async getGroup(code) { return groups[code] ? { name: groups[code].name } : null; },
     async createGroup(uid, name) { const c = newCode(); groups[c] = { name, members: [uid] }; users[uid].groups.push(c); users[uid].current = c; bump(); return c; },
     async joinGroup(uid, code) { if (!groups[code]) { const e = new Error(); e.code = "not_found"; throw e; } if (!groups[code].members.includes(uid)) groups[code].members.push(uid); if (!users[uid].groups.includes(code)) users[uid].groups.push(code); users[uid].current = code; bump(); },
@@ -327,7 +335,7 @@ async function firebaseStore() {
   const setKeep = (keep) => A.setPersistence(auth, keep ? A.indexedDBLocalPersistence : A.browserSessionPersistence).catch(() => A.setPersistence(auth, keep ? A.browserLocalPersistence : A.browserSessionPersistence));
   let db;
   try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache() }); } catch { db = F.getFirestore(app); }
-  const { doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, onSnapshot, query, where, serverTimestamp, arrayUnion, arrayRemove, writeBatch } = F;
+  const { doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, onSnapshot, query, where, limit, serverTimestamp, arrayUnion, arrayRemove, writeBatch } = F;
   const uRef = (uid) => doc(db, "users", uid);
   const gRef = (code) => doc(db, "groups", code);
   const mRef = (code, uid) => doc(db, "groups", code, "members", uid);
@@ -362,6 +370,12 @@ async function firebaseStore() {
     async getReactions(owner, eid) { return (await getDocs(rCol(owner, eid))).docs.map(d => ({ uid: d.id, ...d.data(), at: d.data().at?.toMillis?.() || 0 })); },
     async setReaction(owner, eid, uid, data) { await setDoc(doc(rCol(owner, eid), uid), { ...data, at: serverTimestamp() }); },
     async deleteReaction(owner, eid, uid) { await deleteDoc(doc(rCol(owner, eid), uid)); },
+    // likes/comments you received (only you can read them; they are deleted once you have seen them)
+    watchInbox(uid, cb) { return onSnapshot(query(collection(db, "users", uid, "inbox"), limit(50)), s => cb(s.docs.map(d => ({ id: d.id, ...d.data(), at: d.data().at?.toMillis?.() || Date.now() }))), () => cb([])); },
+    async notify(owner, data) { await addDoc(collection(db, "users", owner, "inbox"), { ...data, at: serverTimestamp() }); },
+    async clearInbox(uid, ids) { const b = writeBatch(db); ids.slice(0, 450).forEach(id => b.delete(doc(db, "users", uid, "inbox", id))); await b.commit(); },
+    watchGoal(code, ym, cb) { return onSnapshot(doc(db, "groups", code, "goals", ym), s => cb(s.exists() ? s.data() : null), () => cb(null)); },
+    async setGoal(code, ym, uid, amount) { const r = doc(db, "groups", code, "goals", ym); if (amount) await setDoc(r, { amount, by: uid, at: serverTimestamp() }); else await deleteDoc(r); },
     async getGroup(code) { const g = await getDoc(gRef(code)); return g.exists() ? g.data() : null; },
     async createGroup(uid, name) {
       for (let i = 0; i < 3; i++) {
@@ -705,9 +719,18 @@ function onSignedIn(user) {
     S.prefsLoaded = true; runRecurring(); queueRender();
   });
   S.subs.share = S.store.watchShare(user.uid, (p) => { S.share = p || {}; queueRender(); });
+  S.inbox = []; S.inboxToasted = new Set();
+  S.subs.inbox = S.store.watchInbox(user.uid, (l) => {
+    S.inbox = l.sort((a, b) => b.at - a.at);
+    const fresh = S.inbox.filter(n => !S.inboxToasted.has(n.id));
+    fresh.forEach(n => S.inboxToasted.add(n.id));
+    updateBell();
+    if (fresh.length) setTimeout(() => toast(fresh.length === 1 ? inboxText(fresh[0]) : `いいね・コメントが${fresh.length}件届いています`, { action: { label: "見る", fn: inboxSheet } }), 1200);
+  });
   askPublishOld(user.uid);
 }
 function onSignedOut() {
+  S.subs.inbox?.(); S.subs.goal?.(); S.subs.goal = null; S.goalKey = null; S.inbox = []; updateBell();
   S.subs.me?.(); S.subs.prefs?.(); S.subs.share?.(); unsubAll(S.subs.group); stopData(); S.cache = {}; S.recurDone = false;
   Object.values(S.personSubs).forEach(f => f()); S.personSubs = {};
   Object.assign(S, { user: null, me: null, prefs: {}, share: {}, code: null, group: null, groupNames: {}, memberIds: [], people: {}, data: {}, priv: [], loaded: {}, privLoaded: false, denied: {}, viewing: null, nums: {} });
@@ -890,6 +913,19 @@ function renderHome() {
   }
   renderHomeBelow();
 }
+// Budgets that are 80% used or more this month (whole budget and each category budget).
+// `extra` lets the entry screen include the record it is about to save.
+function budgetAlerts(extra = {}) {
+  const cur = inMonth(recordsOf(me()), thisMonth()).filter(isExp), out = [];
+  const addAll = Object.values(extra).reduce((a, b) => a + b, 0);
+  const check = (key, label, budget, used) => {
+    if (!budget) return; const pct = used / budget;
+    if (pct >= .8) out.push({ key, label, pct, left: budget - used, over: pct > 1, level: pct > 1 ? 2 : 1 });
+  };
+  check("_all", "今月", Number(S.prefs.budget || 0), sumOf(cur) + addAll);
+  Object.entries(S.prefs.catBudgets || {}).forEach(([c, b]) => check(c, c, Number(b), sumOf(cur.filter(x => x.category === c)) + (extra[c] || 0)));
+  return out.sort((a, b) => b.pct - a.pct);
+}
 function renderHomeBelow() {
   const box = $("s-home").querySelector(".home-below"); if (!box) return;
   const uid = S.viewing, mine = isMe(uid);
@@ -897,6 +933,14 @@ function renderHomeBelow() {
   if (S.denied[uid]) { fill(box, emptyState("表示できません", "この人が閲覧を許可していないため、記録は見られません。", null, "lock")); return; }
   const st = monthStats(uid, S.ym), recent = sortEntries(recordsOf(uid)).filter(x => x.date <= ymKey(S.ym) + "-31").slice(0, 6);
   const kids = [];
+  if (mine && ymKey(S.ym) === ymKey(thisMonth())) {
+    const al = budgetAlerts();
+    if (al.length) kids.push(h("button", { type: "button", class: "card alertcard press", onclick: () => go("analysis") },
+      h("span", { class: "ic" }, ic("warn")),
+      h("div", { class: "grow" }, h("strong", null, al.some(a => a.over) ? "予算を超えています" : "予算が残り少なくなっています"),
+        al.slice(0, 3).map(a => h("div", { class: "al" + (a.over ? " over" : "") }, h("span", null, a.key === "_all" ? "今月の予算" : a.label),
+          h("span", { class: "num" }, a.over ? `${yen(-a.left)} オーバー` : `${Math.round(a.pct * 100)}%・残り ${yen(a.left)}`))))));
+  }
   if (mine) {
     // this month's income, spending and what is left
     const bal = st.income - st.spent;
@@ -1004,6 +1048,8 @@ function reactionsBox(x, owner) {
       const next = { like: !!(myR?.like), text: myR?.text || "", ...patch };
       try {
         if (!next.like && !next.text) await S.store.deleteReaction(owner, x.id, me()); else await S.store.setReaction(owner, x.id, me(), { like: next.like, text: next.text.slice(0, 60) });
+        if (patch.like === true) S.store.notify(owner, { from: me(), eid: x.id, kind: "like", text: "" }).catch(() => {});
+        if (patch.text) S.store.notify(owner, { from: me(), eid: x.id, kind: "comment", text: patch.text.slice(0, 60) }).catch(() => {});
         await load(); buzz(6);
       } catch { fail("送れませんでした。通信状態を確認してください"); }
     };
@@ -1329,6 +1375,7 @@ function renderFriends() {
   else if (!friends.length) kids.push(emptyState("まだ友達がいません", "招待コードを送って、友達を呼びましょう。", { label: "友達を招待する", fn: inviteSheet }, "people"));
   else {
     kids.push(h("div", { class: "row" }, h("button", { type: "button", class: "btn press", onclick: inviteSheet }, ic("invite", { width: 18, height: 18 }), " 友達を招待"), h("button", { type: "button", class: "btn press", onclick: shareSheet }, ic("shield", { width: 18, height: 18 }), " 共有設定")));
+    kids.push(goalCard());
     kids.push(...friends.map(uid => friendCard(uid)));
     kids.push(peopleCompare());
   }
@@ -1421,7 +1468,7 @@ function openEntry(edit, preset = {}) {
   const hiddenNow = () => hiddenCats();
   const st = {
     type: edit?.type || "expense", amount: edit ? String(edit.amount) : "", cat: edit?.category || (expCats().some(c => c.id === ls.get("kakeibo.cat")) ? ls.get("kakeibo.cat") : "食費"),
-    sub: edit?.sub || "", date: edit?.date || preset.date || today(), time: edit?.time || "", shop: edit?.shop || "", memo: edit?.memo || "", pay: edit?.pay || "",
+    sub: edit?.sub || "", date: edit?.date || preset.date || today(), time: edit?.time || "", shop: edit?.shop || "", memo: edit?.memo || "", pay: edit ? edit.pay || "" : ls.get("kakeibo.pay") || "",
     pub: true, catTouched: isEdit, fromFav: false, busy: false,
   };
   const catsFor = () => st.type === "income" ? incCats() : expCats();
@@ -1430,7 +1477,7 @@ function openEntry(edit, preset = {}) {
   const saveBtn = h("button", { type: "button", class: "save", id: "saveBtn" }, ic("check", { "stroke-width": 3 }), isEdit ? "更新" : "保存");
   const favRow = h("div", { class: "favrow", "aria-label": "よく使う項目" });
   const keypad = h("div", { class: "keypad", role: "group", "aria-label": "金額の入力" },
-    ["7", "8", "9", ["del", "⌫", "1文字消す"], "4", "5", "6", ["clear", "C", "金額を消す"], "1", "2", "3"].map(k => Array.isArray(k)
+    ["7", "8", "9", ["del", "⌫", "1文字消す（長押しで全部消す）"], "4", "5", "6", ["plus", "+", "足し算"], "1", "2", "3"].map(k => Array.isArray(k)
       ? h("button", { type: "button", class: "fn", "data-k": k[0], "aria-label": k[2] }, k[1]) : h("button", { type: "button", "data-k": k }, k)),
     saveBtn, h("button", { type: "button", class: "zero", "data-k": "0" }, "0"), h("button", { type: "button", "data-k": "00" }, "00"));
   const footer = h("div", { class: "keypad-wrap" }, favRow, keypad);
@@ -1451,9 +1498,12 @@ function openEntry(edit, preset = {}) {
   const amountBtn = h("button", { type: "button", class: "amount", "aria-live": "polite", onclick: () => { st.amount = ""; drawAmount(); } });
   const drawAmount = () => {
     amountBtn.classList.toggle("inc", st.type === "income");
-    fill(amountBtn, h("span", { class: "y" }, st.type === "income" ? "+¥" : "¥"), h("span", { class: "v num" + (st.amount ? "" : " ph") }, st.amount ? Number(st.amount).toLocaleString("ja-JP") : "0"));
-    amountBtn.setAttribute("aria-label", `金額 ${st.amount ? yen(Number(st.amount)) : "未入力"}（タップで消す）`);
-    saveBtn.disabled = !st.amount || st.busy;
+    const total = amtVal(st.amount), expr = st.amount.includes("+");
+    fill(amountBtn, expr ? h("span", { class: "expr num" }, st.amount.split("+").map(t => t ? Number(t).toLocaleString("ja-JP") : "").join(" + ") + " =") : null,
+      h("span", { class: "y" }, st.type === "income" ? "+¥" : "¥"), h("span", { class: "v num" + (total ? "" : " ph") }, total ? total.toLocaleString("ja-JP") : "0"));
+    amountBtn.classList.toggle("hasexpr", expr);
+    amountBtn.setAttribute("aria-label", `金額 ${total ? yen(total) : "未入力"}${expr ? "（" + st.amount.replace(/\+/g, "たす") + "）" : ""}（タップで消す）`);
+    saveBtn.disabled = !total || st.busy;
   };
   const draw = () => {
     const cats = catsFor();
@@ -1505,12 +1555,21 @@ function openEntry(edit, preset = {}) {
     const k = b.dataset.k; if (!k) return;
     buzz(4);
     if (k === "del") st.amount = st.amount.slice(0, -1);
-    else if (k === "clear") st.amount = "";
-    else { if (st.fromFav) st.amount = ""; if (st.amount.length < 8) st.amount = (st.amount + k).replace(/^0+/, ""); }
+    else if (k === "plus") { if (st.amount && !st.amount.endsWith("+") && st.amount.split("+").length < 10) st.amount += "+"; }
+    else {
+      if (st.fromFav) st.amount = "";
+      const parts = st.amount.split("+"), last = parts.pop();
+      if (last.length < 8) st.amount = [...parts, (last + k).replace(/^0+/, "")].join("+");
+    }
     st.fromFav = false; drawAmount();
   });
+  // long-press ⌫ clears the whole amount
+  { const del = keypad.querySelector('[data-k="del"]'); let lp;
+    del.addEventListener("pointerdown", () => { lp = setTimeout(() => { st.amount = ""; st.fromFav = false; buzz(12); drawAmount(); lp = "done"; }, 550); });
+    ["pointerup", "pointerleave", "pointercancel"].forEach(ev => del.addEventListener(ev, () => { if (lp !== "done") clearTimeout(lp); }));
+    del.addEventListener("click", (e) => { if (lp === "done") { e.stopPropagation(); lp = null; } }, true); }
   const save = async () => {
-    const amount = Number(st.amount);
+    const amount = amtVal(st.amount);
     if (!amount) { amountBtn.classList.remove("bad"); void amountBtn.offsetWidth; amountBtn.classList.add("bad"); warn("金額を入力してください"); return; }
     if (amount > 99999999) { warn("金額が大きすぎます。入力内容を確認してください"); return; }
     st.shop = shopIn.value.trim(); st.memo = memoIn.value.trim();
@@ -1518,9 +1577,16 @@ function openEntry(edit, preset = {}) {
     const data = { type: st.type, date: st.date, time: st.time || (isEdit ? edit.time || nowHM() : nowHM()), amount, category: st.cat, sub: st.sub, shop: st.shop.slice(0, 40), memo: st.memo.slice(0, 80), pay: st.pay };
     if (edit?.source) data.source = edit.source;
     st.busy = true; drawAmount();
+    const alertsBefore = !isEdit && st.type === "expense" ? budgetAlerts() : null;
     try {
       if (!isEdit) {
+        if (st.type === "expense") ls.set("kakeibo.pay", st.pay || null);
         const id = await S.store.addEntry(me(), data, !pub);
+        if (alertsBefore && data.date.slice(0, 7) === ymKey(thisMonth())) {
+          const after = budgetAlerts({ [st.cat]: amount });
+          const fresh = after.find(a => !alertsBefore.some(b => b.key === a.key && b.level === a.level));
+          if (fresh) setTimeout(() => warn(fresh.over ? `${fresh.label}の予算を超えました（${yen(-fresh.left)}オーバー）` : `${fresh.label}の予算の${Math.round(fresh.pct * 100)}%を使いました（残り${yen(fresh.left)}）`), 400);
+        }
         if (cont) {
           // stay on the page for the next record: keep the date, category and payment, clear the rest
           st.amount = ""; st.shop = ""; st.memo = ""; st.sub = ""; st.busy = false; st.fromFav = false;
@@ -1585,7 +1651,7 @@ function favSheet(st, done) {
   const body = h("div", { class: "stack" });
   const draw = () => {
     const favs = S.prefs.favs || [];
-    const cur = { t: st.type, c: st.cat, s: st.sub, m: (st.memo || "").slice(0, 40), sh: (st.shop || "").slice(0, 40), p: st.pay, a: withAmount ? Number(st.amount) || 0 : 0 };
+    const cur = { t: st.type, c: st.cat, s: st.sub, m: (st.memo || "").slice(0, 40), sh: (st.shop || "").slice(0, 40), p: st.pay, a: withAmount ? amtVal(st.amount) : 0 };
     const exists = favs.some(f => favKey(f) === favKey(cur));
     const line = (f) => h("span", { class: "grow" }, h("strong", null, f.sh || f.m || f.s || f.c), h("small", null, [catLabel({ category: f.c, sub: f.s }), f.p, f.a ? yen(f.a) : ""].filter(Boolean).join("・")));
     fill(body, 
@@ -1856,6 +1922,83 @@ function askPublishOld(uid) {
   }, 700);
 }
 
+/* ================= notifications (likes & comments) ================= */
+function inboxText(n) {
+  const e = recordsOf(me()).find(x => x.id === n.eid);
+  const what = e ? `「${titleOf(e)} ${yen(e.amount)}」` : "あなたの記録";
+  return n.kind === "like" ? `${nameOf(n.from)}さんが${what}にいいねしました` : `${nameOf(n.from)}さんが${what}にコメント：${n.text}`;
+}
+function updateBell() {
+  const b = $("menuBtn"); if (!b) return;
+  const n = (S.inbox || []).length;
+  b.querySelector(".dot")?.remove();
+  if (n) b.append(h("span", { class: "dot", "aria-hidden": "true" }, n > 9 ? "9+" : String(n)));
+  b.setAttribute("aria-label", n ? `メニューを開く（お知らせ${n}件）` : "メニューを開く");
+  refreshDrawer();
+}
+function inboxSheet() {
+  const shown = (S.inbox || []).slice();
+  const handle = openSheet(h("div", { class: "stack" }, h("div", { class: "head" }, h("h2", null, "お知らせ")),
+    shown.length ? h("div", { class: "card", style: "padding:4px 14px" }, shown.map(n => {
+      const e = recordsOf(me()).find(x => x.id === n.eid);
+      return h("button", { type: "button", class: "row rcrow press", style: "width:100%;border:none;background:none;text-align:left", onclick: () => { if (e) { closeSheet(handle); detailSheet(e, me()); } } },
+        avatar(n.from, 32), h("div", { class: "grow" }, h("span", null, n.kind === "like" ? "❤ " : "💬 ", inboxText(n)), h("small", { class: "help", style: "display:block" }, agoLabel(n.at))));
+    })) : emptyState("お知らせはありません", "友達があなたの記録にいいねやコメントをすると、ここに届きます。", null, "heart"),
+    shown.length ? h("p", { class: "help", style: "text-align:center" }, "見たお知らせは、閉じると消えます。") : null), { label: "お知らせ",
+    onClose: () => { const ids = shown.map(n => n.id); if (ids.length) S.store.clearInbox(me(), ids).catch(() => {}); } });
+}
+function agoLabel(t) {
+  const m = Math.round((Date.now() - t) / 60000);
+  return m < 1 ? "たった今" : m < 60 ? `${m}分前` : m < 1440 ? `${Math.round(m / 60)}時間前` : `${Math.round(m / 1440)}日前`;
+}
+
+/* ================= group goal ================= */
+// One spending goal per group and month ("1人 ¥X まで"), shared by the members. Progress uses public records only.
+function syncGoal() {
+  const key = S.code ? S.code + "|" + ymKey(S.ym) : null;
+  if (key === S.goalKey) return;
+  S.subs.goal?.(); S.subs.goal = null; S.goalKey = key; S.goal = undefined;
+  if (key) S.subs.goal = S.store.watchGoal(S.code, ymKey(S.ym), (g) => { S.goal = g; queueRender(); });
+}
+function goalCard() {
+  syncGoal();
+  const g = S.goal;
+  if (g === undefined) return skCard(90);
+  const setBtn = h("button", { type: "button", class: "btn small press", onclick: goalSheet }, g ? "変更" : "目標を決める");
+  if (!g) return h("div", { class: "card" }, h("div", { style: "display:flex;justify-content:space-between;align-items:center;gap:8px" },
+    h("div", null, h("p", { class: "label", style: "margin:0" }, `${S.ym.m}月のグループ目標`), h("small", { class: "help" }, "みんなで「1人いくらまで」を決めて、進み具合を見せ合えます。")), setBtn));
+  const ids = S.memberIds.slice().sort((a, b) => expTotal(inMonth(S.data[a] || [], S.ym)) - expTotal(inMonth(S.data[b] || [], S.ym)));
+  const rows = ids.map(uid => {
+    const used = expTotal(inMonth(S.data[uid] || [], S.ym)), pct = used / g.amount;
+    const bar = h("div", { class: "bar" + (pct > 1 ? " over" : pct > .8 ? " near" : "") }, h("i"));
+    requestAnimationFrame(() => requestAnimationFrame(() => { bar.firstChild.style.width = Math.min(100, pct * 100) + "%"; }));
+    return h("div", { class: "goalrow" }, avatar(uid, 28), h("div", { class: "grow" },
+      h("div", { class: "h" }, h("strong", null, nameOf(uid) + (isMe(uid) ? "（自分）" : "")), h("span", { class: "num" + (pct > 1 ? " delta-up" : "") }, pct > 1 ? `${yen(used - g.amount)} オーバー` : `残り ${yen(g.amount - used)}`)), bar));
+  });
+  const okN = ids.filter(uid => expTotal(inMonth(S.data[uid] || [], S.ym)) <= g.amount).length;
+  return h("div", { class: "card" },
+    h("div", { style: "display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px" },
+      h("div", null, h("p", { class: "label", style: "margin:0" }, `${S.ym.m}月のグループ目標`), h("strong", { class: "num", style: "font-size:1.15rem" }, `1人 ${yen(g.amount)} まで`)), setBtn),
+    h("p", { class: "help", style: "margin-bottom:8px" }, `いま${ids.length}人中${okN}人が目標内です` + (g.by ? `（決めた人：${nameOf(g.by)}）` : "")),
+    rows);
+}
+function goalSheet() {
+  const inp = h("input", { class: "text", id: "goalAmt", inputmode: "numeric", maxlength: 9, placeholder: "例：50000", value: S.goal?.amount ? String(S.goal.amount) : "" });
+  const err = h("div", { class: "err", role: "alert" });
+  let handle;
+  const save = async (amount) => {
+    try { await S.store.setGoal(S.code, ymKey(S.ym), me(), amount); closeSheet(handle); ok(amount ? "グループ目標を決めました" : "グループ目標を消しました"); }
+    catch { err.textContent = "保存できませんでした。通信状態を確認してください"; }
+  };
+  handle = openSheet(h("form", { class: "stack", onsubmit: (e) => { e.preventDefault(); const a = Number(String(inp.value).replace(/[^0-9]/g, "")); if (!a) { err.textContent = "金額を入れてください"; return; } save(a); } },
+    h("div", { class: "head" }, h("h2", null, `${S.ym.m}月のグループ目標`)),
+    h("p", { class: "help" }, `「${S.groupNames[S.code] || "グループ"}」のみんなで、今月1人いくらまでにするかを決めます。メンバーの誰でも変更できます。`),
+    inp, err,
+    h("button", { type: "submit", class: "btn primary press" }, "決める"),
+    S.goal ? h("button", { type: "button", class: "btn press", onclick: () => save(0) }, "目標を消す") : null), { label: "グループ目標" });
+  setTimeout(() => inp.focus(), 250);
+}
+
 /* ================= fixed costs (recurring) ================= */
 // Each item makes one record per month on its day. Ids are fixed per month (rc_<item>_<yyyymm>),
 // so opening the app on two phones never makes the same record twice.
@@ -2082,6 +2225,7 @@ function refreshDrawer(force) {
     S.code ? [mi("invite", "このグループに友達を招待", inviteSheet), mi("leave", "このグループを抜ける", leaveSheet)] : null,
     h("h3", null, "記録"),
     mi("shield", "共有設定", shareSheet), mi("star", "よく使う項目", () => favSheet({ type: "expense", cat: "食費", sub: "", memo: "", shop: "", pay: "", amount: "" })), mi("budget", "予算", budgetSheet),
+    mi("heart", "お知らせ", inboxSheet, (S.inbox || []).length ? h("span", { class: "count" }, String(S.inbox.length)) : null),
     mi("repeat", "固定費・毎月の収入", recurringSheet), mi("tag", "カテゴリの編集", catEditSheet),
     mi("paypay", "PayPayの履歴を取り込む", importSheet), mi("csv", "CSVで保存", exportCSV),
     h("h3", null, "設定"),
