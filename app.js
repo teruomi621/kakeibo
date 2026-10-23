@@ -705,6 +705,7 @@ function onSignedIn(user) {
     S.prefsLoaded = true; runRecurring(); queueRender();
   });
   S.subs.share = S.store.watchShare(user.uid, (p) => { S.share = p || {}; queueRender(); });
+  askPublishOld(user.uid);
 }
 function onSignedOut() {
   S.subs.me?.(); S.subs.prefs?.(); S.subs.share?.(); unsubAll(S.subs.group); stopData(); S.cache = {}; S.recurDone = false;
@@ -1844,6 +1845,25 @@ async function exportCSV() {
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" });
   const a = h("a", { href: URL.createObjectURL(blob), download: `kakeibo_all_${today().replace(/-/g, "")}.csv` });
   document.body.append(a); a.click(); a.remove(); ok(`${all.length}件をCSVで保存しました`);
+}
+
+// Records are now public by default. Once per person and phone, offer to make older private
+// records public too (asked, never done silently, because friends' records are theirs to decide).
+function askPublishOld(uid) {
+  const key = "kakeibo.askedPub." + uid;
+  if (ls.get(key)) return;
+  let tries = 0;
+  const t = setInterval(async () => {
+    if (!S.user || S.user.uid !== uid || ++tries > 20) { clearInterval(t); return; }
+    if (!S.privLoaded || sheets.length || $("modalRoot").firstChild) return;
+    clearInterval(t);
+    ls.set(key, "1");
+    if (!S.priv.length) return;
+    const hidden = S.share.hiddenCats || [];
+    const yes = await confirmModal({ title: "非公開の記録を公開にしますか？", body: "記録は最初から公開になりました。前に非公開でつけた記録も、まとめて公開にできます（「共有しない」にした費目は除きます）。あとから記録ごとに非公開に戻せます。", okLabel: "すべて公開する", cancelLabel: "このまま" });
+    if (!yes) { toast("あとからでも「共有設定」でまとめて公開できます"); return; }
+    try { if (S.share.defaultPublic === false) await S.store.setShare(me(), { defaultPublic: true }); const k = await S.store.publicizeAll(me(), hidden); ok(`${k}件を公開にしました`); } catch { ls.set(key, null); fail("できませんでした。通信状態を確認してください"); }
+  }, 700);
 }
 
 /* ================= fixed costs (recurring) ================= */
