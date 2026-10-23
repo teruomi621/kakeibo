@@ -2148,8 +2148,17 @@ async function boot() {
   wirePullToRefresh();
   moveTabIndicator();
   const configured = !!(firebaseConfig && firebaseConfig.apiKey);
+  // On the real site never fall back to sample data: a friend opening a shared link in an
+  // in-app browser (LINE etc.) would otherwise land in the demo, already "logged in".
   try { S.store = configured ? await firebaseStore() : demoStore(); }
-  catch { S.store = demoStore(); warn("サーバーに接続できないため、デモ表示にしています"); }
+  catch {
+    const f = $("full"); f.hidden = false;
+    fill(f, h("div", { class: "boot stack", style: "max-width:320px;text-align:center;gap:12px;padding:24px" },
+      h("h2", { style: "margin:0" }, "接続できませんでした"),
+      h("p", { class: "help" }, "通信状態を確認して、もう一度お試しください。LINEなどのアプリ内で開いている場合は、右上のメニューから「Safariで開く」を選ぶと開けることがあります。"),
+      h("button", { type: "button", class: "btn primary press", onclick: () => location.reload() }, "もう一度")));
+    return;
+  }
   $("demoBanner").hidden = !S.store.demo;
   S.store.onAuth((u) => { if (u) { if (S.user?.uid !== u.uid) { hideFull(); onSignedIn(u); go(S.tab); } } else onSignedOut(); });
 }
