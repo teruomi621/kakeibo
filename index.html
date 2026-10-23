@@ -379,6 +379,20 @@ input[type=search]::-webkit-search-cancel-button, input[type=search]::-webkit-se
 .sheet.dragging { animation: none; transition: none; }
 .sheet.snap { animation: none; transition: transform var(--d-card) var(--spring); }
 @keyframes sheet-in { from { transform: translateY(100%); } }
+/* full-screen page (entry screen): slides in from the right like an iOS push */
+.sheet.page { inset: 0; width: auto; max-width: none; margin: 0 0 var(--kb, 0px); max-height: none; height: calc(100% - var(--kb, 0px)); border-radius: 0; box-shadow: none; transform: none; animation: page-in 320ms var(--ease); }
+.sheet.page.out { animation: page-out 240ms var(--ease) forwards; }
+.scrim.page-scrim { background: rgba(0, 0, 0, .12); }
+@keyframes page-in { from { transform: translateX(100%); } }
+@keyframes page-out { to { transform: translateX(100%); } }
+.pagehead { flex: none; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding-top: max(6px, env(safe-area-inset-top, 0px)); padding-bottom: 4px; padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); border-bottom: 1px solid var(--line); background: var(--bg); }
+.pagehead h1 { margin: 0; font-size: var(--fs-md); font-weight: 700; text-align: center; }
+.pagehead .back { justify-self: start; display: inline-flex; align-items: center; gap: 2px; border: none; background: none; color: var(--brand); font-weight: 600; font-size: var(--fs-md); padding: 8px 6px; min-height: 40px; }
+.pagehead .back svg { width: 20px; height: 20px; }
+.pagehead .iconbtn { justify-self: end; }
+.sheet.page .body { padding-top: 10px; }
+.sheet.page .body > * { max-width: 640px; margin-inline: auto; width: 100%; }
+.sheet.page .keypad-wrap > * { max-width: 640px; margin-inline: auto; }
 @keyframes sheet-out { to { transform: translateY(105%); } }
 .sheet .grab { flex: none; padding: 8px 0 6px; touch-action: none; cursor: grab; }
 .sheet .grab::before { content: ""; display: block; width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto; }

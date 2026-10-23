@@ -446,16 +446,24 @@ const warn = (m, o) => toast(m, { ...o, type: "warning" });
 
 /* ================= sheets (stackable) & modal ================= */
 const sheets = [];
+// opts.page: a full-screen page that slides in from the right (used for the entry screen);
+// otherwise a bottom sheet. Pages also take one step of browser history so "back" closes them.
 function openSheet(content, opts = {}) {
-  const scrim = h("div", { class: "scrim", onclick: () => closeSheet(handle) });
+  const scrim = h("div", { class: "scrim" + (opts.page ? " page-scrim" : ""), onclick: () => { if (!opts.page) closeSheet(handle); } });
   const body = h("div", { class: "body" }, content);
-  const grab = h("div", { class: "grab", "aria-hidden": "true" });
-  const el = h("div", { class: "sheet" + (opts.tall ? " tall" : "") + (opts.footer ? " has-keypad" : ""), role: "dialog", "aria-modal": "true", "aria-label": opts.label || "" }, grab, body, opts.footer || null);
-  const handle = { el, scrim, body, onClose: opts.onClose };
+  const grab = opts.page ? null : h("div", { class: "grab", "aria-hidden": "true" });
+  const el = h("div", { class: "sheet" + (opts.page ? " page" : "") + (opts.tall ? " tall" : "") + (opts.footer ? " has-keypad" : ""), role: "dialog", "aria-modal": "true", "aria-label": opts.label || "" },
+    opts.header || grab, body, opts.footer || null);
+  const handle = { el, scrim, body, onClose: opts.onClose, page: !!opts.page };
   sheets.push(handle);
   $("sheetRoot").append(scrim, el);
   $("tabbar").setAttribute("aria-hidden", "true");
-  dragToClose(handle, grab);
+  if (grab) dragToClose(handle, grab);
+  if (opts.page) {
+    try { history.pushState({ kakeiboPage: true }, ""); handle.pushed = true; } catch {}
+    handle.onPop = () => { handle.popped = true; closeSheet(handle); };
+    window.addEventListener("popstate", handle.onPop);
+  }
   setTimeout(() => { const f = el.querySelector("[autofocus]"); if (f) f.focus(); }, 380);
   return handle;
 }
@@ -465,7 +473,11 @@ function closeSheet(handle) {
   const i = sheets.indexOf(handle); if (i < 0) return;
   sheets.splice(i, 1);
   handle.el.classList.add("out"); handle.scrim.classList.add("out");
-  setTimeout(() => { handle.el.remove(); handle.scrim.remove(); }, 240);
+  setTimeout(() => { handle.el.remove(); handle.scrim.remove(); }, 260);
+  if (handle.page) {
+    window.removeEventListener("popstate", handle.onPop);
+    if (handle.pushed && !handle.popped && history.state?.kakeiboPage) { try { history.back(); } catch {} }
+  }
   if (!sheets.length) $("tabbar").removeAttribute("aria-hidden");
   handle.onClose?.();
 }
@@ -1214,13 +1226,13 @@ function openEntry(edit, preset = {}) {
     const dtLabel = `${dayLabel(st.date).replace(/（.）/, "")} ${st.time ? (TIME_PRESETS.find(p => p[1] === st.time)?.[0] || st.time) : "今"}`;
     const payLabel = st.pay ? st.pay.replace("クレジットカード", "クレカ").replace("交通系IC", "交通IC") : "支払方法";
     fill(body,
-      // row 1: expense/income, receipt camera, close
+      // row 1: expense / income
       h("div", { class: "toprow" },
         h("div", { class: "typeseg" }, segmented([["expense", "支出"], ["income", "収入"]], st.type, (v) => { st.type = v; st.sub = ""; st.cat = (v === "income" ? INCOME_CATS : CATS)[0].id; if (v === "income") st.pub = false; setTimeout(draw, 120); }, "支出か収入か")),
-        h("h2", { style: "position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)" }, isEdit ? "記録を編集" : "記録する"),
         h("div", { style: "flex:1" }),
-        !isEdit ? h("button", { type: "button", class: "iconbtn sm press", "aria-label": "レシートを読み取る", onclick: () => $("receiptFile").click() }, ic("camera")) : null,
-        h("button", { type: "button", class: "iconbtn sm press", "aria-label": "閉じる", onclick: () => closeSheet(handle) }, ic("x"))),
+        isEdit ? h("button", { type: "button", class: "iconbtn sm press", "aria-label": "この記録を削除", style: "color:var(--danger)", onclick: async () => {
+          if (await confirmModal({ title: "この記録を削除しますか？", body: `${titleOf(edit)}・${yen(edit.amount)}`, okLabel: "削除", danger: true })) { closeSheet(handle); deleteWithUndo(edit); }
+        } }, ic("trash")) : null),
       amountBtn,
       h("div", { class: "cats", role: "radiogroup", "aria-label": "カテゴリ" }, cats.map(k => h("button", { type: "button", class: "cat", role: "radio", "aria-checked": String(k.id === st.cat),
         onclick: () => { if (st.cat !== k.id) { st.cat = k.id; st.sub = ""; } st.catTouched = true; if (st.type === "expense") ls.set("kakeibo.cat", k.id); buzz(5); draw(); } },
@@ -1235,10 +1247,7 @@ function openEntry(edit, preset = {}) {
           "aria-label": locked ? `「${st.cat}」は共有しない設定のため非公開` : st.pub ? "友達に公開（タップで非公開にする）" : "非公開（タップで友達に公開する）",
           onclick: () => { st.pub = !st.pub; buzz(5); draw(); toast(st.pub ? "この記録は同じグループの友達に公開されます" : "この記録は自分にだけ見えます"); } },
           ic(st.pub ? "eye" : "lock"), h("span", null, st.pub ? "公開" : "非公開"))),
-      h("div", { class: "tworow" }, h("div", null, shopAC), h("div", null, memoAC)),
-      isEdit ? h("button", { type: "button", class: "btn danger small press", style: "align-self:flex-start", onclick: async () => {
-        if (await confirmModal({ title: "この記録を削除しますか？", body: `${titleOf(edit)}・${yen(edit.amount)}`, okLabel: "削除", danger: true })) { closeSheet(handle); deleteWithUndo(edit); }
-      } }, "この記録を削除") : null);
+      h("div", { class: "tworow" }, h("div", null, shopAC), h("div", null, memoAC)));
     drawAmount(); drawFavs();
   };
   const drawFavs = () => {
@@ -1294,7 +1303,11 @@ function openEntry(edit, preset = {}) {
   const onBlur = () => setTimeout(() => { if (!handle.el.contains(document.activeElement) || !document.activeElement.matches("input:not([type=checkbox])")) handle.el.classList.remove("typing"); }, 60);
   const vv = window.visualViewport;
   const onVV = () => { const kb = Math.max(0, window.innerHeight - vv.height - vv.offsetTop); handle.el.style.setProperty("--kb", kb > 80 ? kb + "px" : "0px"); };
-  handle = openSheet(body, { footer, label: isEdit ? "記録を編集" : "記録する", onClose: () => { vv?.removeEventListener("resize", onVV); S.entryState = null; } });
+  const header = h("header", { class: "pagehead" },
+    h("button", { type: "button", class: "back press", onclick: () => closeSheet(handle) }, svg("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2.4, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" }, svg("path", { d: "M15 5l-7 7 7 7" })), "戻る"),
+    h("h1", null, isEdit ? "記録を編集" : "記録する"),
+    !isEdit ? h("button", { type: "button", class: "iconbtn press", "aria-label": "レシートを読み取る", onclick: () => $("receiptFile").click() }, ic("camera")) : h("span", { style: "width:40px" }));
+  handle = openSheet(body, { page: true, header, footer, label: isEdit ? "記録を編集" : "記録する", onClose: () => { vv?.removeEventListener("resize", onVV); S.entryState = null; } });
   handle.el.addEventListener("focusin", onFocus); handle.el.addEventListener("focusout", onBlur);
   vv?.addEventListener("resize", onVV);
   S.entryState = { st, draw: () => { shopIn.value = st.shop; memoIn.value = st.memo; draw(); } };
