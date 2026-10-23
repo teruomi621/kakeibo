@@ -33,7 +33,22 @@ const INCOME_CATS = [
 ];
 const ALL_CATS = CATS.concat(INCOME_CATS);
 const CAT = Object.fromEntries(ALL_CATS.map(c => [c.id, c]));
-const catOf = (id) => CAT[id] || CAT["その他"];
+// The user's own categories (prefs.myCats) and extra sub-items (prefs.subExtra) are merged in here.
+let MY = { cats: [], extra: {} };
+const withExtra = (c) => {
+  const ex = MY.extra[c.id] || [];
+  if (!ex.length) return c;
+  const base = c.subs.filter(x => x !== "その他");
+  return { ...c, subs: [...base, ...ex.filter(x => !base.includes(x)), ...(c.subs.includes("その他") ? ["その他"] : [])] };
+};
+const expCats = () => CATS.filter(c => c.id !== "その他").concat(MY.cats.filter(c => c.type !== "income"), CATS.filter(c => c.id === "その他")).map(withExtra);
+const incCats = () => INCOME_CATS.concat(MY.cats.filter(c => c.type === "income")).map(withExtra);
+const allCats = () => expCats().concat(incCats());
+const catOf = (id) => {
+  const c = CAT[id] || MY.cats.find(x => x.id === id);
+  if (c) return withExtra(c);
+  return { id: id || "その他", g: (id || "他").slice(0, 1), c: 8, subs: ["その他"] }; // a friend's own category
+};
 const PAYS = ["現金", "クレジットカード", "PayPay", "交通系IC", "電子マネー", "デビット", "口座振替", "その他"];
 const TIME_PRESETS = [["朝", "08:00"], ["昼", "12:30"], ["おやつ", "15:00"], ["夜", "19:00"], ["深夜", "23:00"]];
 // Card colours for people (self is always the first one).
@@ -88,6 +103,7 @@ const yenShort = (n) => n >= 10000 ? (n / 10000).toFixed(n >= 100000 ? 0 : 1) + 
 const ymd = (d) => d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
 const today = () => ymd(new Date());
 const ymKey = (ym) => ym.y + "-" + pad(ym.m);
+const ymOf = (k) => ({ y: Number(String(k).slice(0, 4)), m: Number(String(k).slice(5, 7)) });
 const addMonths = (ym, n) => { const d = new Date(ym.y, ym.m - 1 + n, 1); return { y: d.getFullYear(), m: d.getMonth() + 1 }; };
 const daysIn = (ym) => new Date(ym.y, ym.m, 0).getDate();
 const thisMonth = () => { const d = new Date(); return { y: d.getFullYear(), m: d.getMonth() + 1 }; };
@@ -130,7 +146,7 @@ const ICONS = {
   paypay: "M4 7h16v12H4zM4 11h16M8 15h3", budget: "M12 3v18M17 7.5c0-1.9-2.2-3-5-3s-5 1.1-5 3 2.2 2.6 5 3.2 5 1.4 5 3.3-2.2 3.5-5 3.5-5-1.2-5-3", csv: "M12 4v11M7 10l5 5 5-5M5 20h14",
   theme: "M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9", user: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21c.8-3.8 4-6 8-6s7.2 2.2 8 6", home: "M4 11l8-7 8 7v9h-5v-6H9v6H4z",
   help: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.6V14M12 17.5v.01", out: "M15 17l5-5-5-5M20 12H9M11 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h5",
-  shield: "M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z", receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6",
+  shield: "M12 3l8 3v6c0 4.5-3.4 8.2-8 9-4.6-.8-8-4.5-8-9V6z", repeat: "M17 3l3 3-3 3M4 11V9a3 3 0 0 1 3-3h13M7 21l-3-3 3-3M20 13v2a3 3 0 0 1-3 3H4", tag: "M3 12V4h8l10 10-8 8zM7.5 8.5h.01", heart: "M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z", cal: "M4 6h16v14H4zM4 10h16M9 3v4M15 3v4", list: "M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01", receipt: "M6 3h12v18l-3-2-3 2-3-2-3 2zM9 8h6M9 12h6",
 };
 const ic = (k, extra) => svg("svg", { viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true", ...(extra || {}) }, svg("path", { d: ICONS[k] }));
 const ls = {
@@ -220,6 +236,7 @@ function demoStore() {
   const pub = {}, priv = {}, prefs = { me: { budget: 90000, catBudgets: { 食費: 35000, 交通費: 8000, 娯楽: 12000, 日用品: 6000 }, noSpend: [],
     favs: [{ c: "食費", s: "昼ごはん", m: "", sh: "社食", a: 450, p: "現金" }, { c: "交通費", s: "電車", m: "", sh: "JR", a: 0, p: "交通系IC" }, { c: "食費", s: "カフェ", m: "", sh: "スターバックス", a: 0, p: "PayPay" }] } };
   const share = { me: { defaultPublic: false, hiddenCats: ["健康・医療"], blocked: [] } };
+  const reactions = {};
   const T = [
     ["食費", "スーパー・食料品", ["ライフ", "イオン", "業務スーパー"], [800, 4200], ["クレジットカード", "PayPay"]],
     ["食費", "コンビニ", ["セブン-イレブン", "ローソン", "ファミリーマート"], [150, 900], ["PayPay", "交通系IC"]],
@@ -238,7 +255,7 @@ function demoStore() {
   let n = 0;
   const gen = (uid, scale) => {
     pub[uid] = []; priv[uid] = [];
-    for (let k = 6; k >= 0; k--) {
+    for (let k = 13; k >= 0; k--) {
       const ym = addMonths(base, -k), days = k === 0 ? tday : daysIn(ym);
       const cnt = Math.round((14 + R() * 10) * scale * (k === 0 ? tday / daysIn(ym) : 1));
       for (let i = 0; i < cnt; i++) {
@@ -269,6 +286,13 @@ function demoStore() {
     async ensureMe() {},
     async updateMe(uid, patch) { Object.assign(users[uid], patch); bump(); },
     watchUser(uid, cb) { return watch(() => cb(users[uid] ? { name: users[uid].name } : null)); },
+    async ensureProfile() {},
+    async fetchRange(uid, from, to, p) { await new Promise(r => setTimeout(r, 300)); return clone(box(uid, p).filter(x => x.date >= from && x.date <= to)); },
+    async fetchAll(uid, p) { await new Promise(r => setTimeout(r, 300)); return clone(box(uid, p)); },
+    async entryExists(uid, id, p) { return box(uid, p).some(e => e.id === id); },
+    async getReactions(owner, eid) { return clone(Object.entries(reactions[owner + "/" + eid] || {}).map(([uid, r]) => ({ uid, ...r }))); },
+    async setReaction(owner, eid, uid, data) { const k = owner + "/" + eid; reactions[k] = reactions[k] || {}; reactions[k][uid] = { ...data, at: Date.now() }; },
+    async deleteReaction(owner, eid, uid) { delete (reactions[owner + "/" + eid] || {})[uid]; },
     async getGroup(code) { return groups[code] ? { name: groups[code].name } : null; },
     async createGroup(uid, name) { const c = newCode(); groups[c] = { name, members: [uid] }; users[uid].groups.push(c); users[uid].current = c; bump(); return c; },
     async joinGroup(uid, code) { if (!groups[code]) { const e = new Error(); e.code = "not_found"; throw e; } if (!groups[code].members.includes(uid)) groups[code].members.push(uid); if (!users[uid].groups.includes(code)) users[uid].groups.push(code); users[uid].current = code; bump(); },
@@ -307,6 +331,9 @@ async function firebaseStore() {
   const eCol = (uid, p) => collection(db, "users", uid, p ? "private" : "entries");
   const pRef = (uid) => doc(db, "users", uid, "prefs", "main");
   const sRef = (uid) => doc(db, "users", uid, "share", "main");
+  // Only the display name is visible to group members; the user document (with group codes) is private.
+  const prRef = (uid) => doc(db, "users", uid, "profile", "main");
+  const rCol = (owner, eid) => collection(db, "users", owner, "entries", eid, "reactions");
   const list = (s) => s.docs.map(d => { const x = d.data(); return { id: d.id, ...x, t: x.createdAt?.toMillis?.() || 0 }; });
   const strip = (data) => { const { id, t, priv, ...rest } = data; return rest; };
   return {
@@ -317,13 +344,21 @@ async function firebaseStore() {
       await setKeep(keep);
       const c = await A.createUserWithEmailAndPassword(auth, email, pw);
       await setDoc(uRef(c.user.uid), { name, groups: [], current: null, createdAt: serverTimestamp() });
+      await setDoc(prRef(c.user.uid), { name });
     },
     async resetPassword(email) { await A.sendPasswordResetEmail(auth, email); },
     async signOut() { await A.signOut(auth); },
     watchMe(uid, cb) { return onSnapshot(uRef(uid), s => cb(s.exists() ? s.data() : null), () => cb(undefined)); },
     async ensureMe(uid, name) { const s = await getDoc(uRef(uid)); if (!s.exists()) await setDoc(uRef(uid), { name, groups: [], current: null, createdAt: serverTimestamp() }); },
-    async updateMe(uid, patch) { await updateDoc(uRef(uid), patch); },
-    watchUser(uid, cb) { return onSnapshot(uRef(uid), s => cb(s.exists() ? { name: s.data().name } : null), () => cb(null)); },
+    async updateMe(uid, patch) { await updateDoc(uRef(uid), patch); if (patch.name) await setDoc(prRef(uid), { name: patch.name }); },
+    watchUser(uid, cb) { return onSnapshot(prRef(uid), s => cb(s.exists() ? { name: s.data().name } : null), () => cb(null)); },
+    async ensureProfile(uid, name) { const s = await getDoc(prRef(uid)); if (!s.exists() || s.data().name !== name) await setDoc(prRef(uid), { name }); },
+    async fetchRange(uid, from, to, p) { return list(await getDocs(query(eCol(uid, p), where("date", ">=", from), where("date", "<=", to)))); },
+    async fetchAll(uid, p) { return list(await getDocs(eCol(uid, p))); },
+    async entryExists(uid, id, p) { return (await getDoc(doc(eCol(uid, p), id))).exists(); },
+    async getReactions(owner, eid) { return (await getDocs(rCol(owner, eid))).docs.map(d => ({ uid: d.id, ...d.data(), at: d.data().at?.toMillis?.() || 0 })); },
+    async setReaction(owner, eid, uid, data) { await setDoc(doc(rCol(owner, eid), uid), { ...data, at: serverTimestamp() }); },
+    async deleteReaction(owner, eid, uid) { await deleteDoc(doc(rCol(owner, eid), uid)); },
     async getGroup(code) { const g = await getDoc(gRef(code)); return g.exists() ? g.data() : null; },
     async createGroup(uid, name) {
       for (let i = 0; i < 3; i++) {
@@ -397,7 +432,7 @@ const S = {
   code: null, group: null, groupNames: {}, memberIds: [], people: {},
   data: {}, priv: [], loaded: {}, privLoaded: false, denied: {},
   viewing: null, ym: thisMonth(), tab: "home",
-  list: { q: "", type: "all", cat: "" }, an: { period: "month", sel: "" },
+  list: { q: "", type: "all", cat: "", view: "list", scope: "month", day: "" }, an: { period: "month", sel: "" },
   subs: { me: null, prefs: null, share: null, group: [], data: [] }, personSubs: {},
   startDismissed: false, refreshing: false, donutPrev: {}, nums: {},
   joinParam: normCode(new URLSearchParams(location.search).get("join")),
@@ -611,7 +646,8 @@ function wirePullToRefresh() {
 async function doRefresh() {
   if (S.refreshing || !S.user) return;
   S.refreshing = true;
-  try { await watchData(true); ok("最新の情報に更新しました"); }
+  S.cache = {};
+  try { await syncData(true); ok("最新の情報に更新しました"); }
   catch { fail("更新できませんでした。通信状態を確認してください"); }
   finally { S.refreshing = false; }
 }
@@ -623,6 +659,7 @@ function onSignedIn(user) {
     if (doc === undefined) { fail("読み込めませんでした。通信状態を確認してください"); return; }
     if (doc === null) { try { await S.store.ensureMe(user.uid, (user.email || "わたし").split("@")[0].slice(0, 20)); } catch {} return; }
     const first = !S.me; S.me = doc;
+    if (first) S.store.ensureProfile(user.uid, doc.name).catch(() => {});
     const groups = doc.groups || [];
     const want = groups.includes(doc.current) ? doc.current : groups[0] || null;
     if (first || want !== S.code) switchGroup(want);
@@ -636,11 +673,15 @@ function onSignedIn(user) {
     }
     queueRender(); refreshDrawer();
   });
-  S.subs.prefs = S.store.watchPrefs(user.uid, (p) => { S.prefs = p || {}; queueRender(); });
+  S.subs.prefs = S.store.watchPrefs(user.uid, (p) => {
+    S.prefs = p || {};
+    MY = { cats: Array.isArray(S.prefs.myCats) ? S.prefs.myCats : [], extra: S.prefs.subExtra || {} };
+    S.prefsLoaded = true; runRecurring(); queueRender();
+  });
   S.subs.share = S.store.watchShare(user.uid, (p) => { S.share = p || {}; queueRender(); });
 }
 function onSignedOut() {
-  S.subs.me?.(); S.subs.prefs?.(); S.subs.share?.(); unsubAll(S.subs.group); unsubAll(S.subs.data);
+  S.subs.me?.(); S.subs.prefs?.(); S.subs.share?.(); unsubAll(S.subs.group); stopData(); S.cache = {}; S.recurDone = false;
   Object.values(S.personSubs).forEach(f => f()); S.personSubs = {};
   Object.assign(S, { user: null, me: null, prefs: {}, share: {}, code: null, group: null, groupNames: {}, memberIds: [], people: {}, data: {}, priv: [], loaded: {}, privLoaded: false, denied: {}, viewing: null, nums: {} });
   closeDrawer(); closeAllSheets(); showAuth("login");
@@ -658,33 +699,66 @@ function switchGroup(code) {
 }
 function setMembers(ids) {
   const same = ids.length === S.memberIds.length && ids.every(x => S.memberIds.includes(x));
-  if (same && S.subs.data.length) return;
+  if (same && Object.keys(S.dataSubs).length) return;
   S.memberIds = ids;
   if (!ids.includes(S.viewing)) S.viewing = me();
   Object.keys(S.personSubs).forEach(id => { if (!ids.includes(id)) { S.personSubs[id](); delete S.personSubs[id]; } });
   ids.forEach(id => { if (!isMe(id) && !S.personSubs[id]) S.personSubs[id] = S.store.watchUser(id, (u) => { S.people[id] = u; queueRender(); }); });
-  watchData();
+  syncData();
 }
-// Seven months of records up to the shown month: enough for 6-month trends and month-on-month comparisons.
-function watchData(keepOld) {
-  unsubAll(S.subs.data);
-  if (!keepOld) { S.data = {}; S.priv = []; S.loaded = {}; S.privLoaded = false; }
-  S.denied = {};
-  const from = ymKey(addMonths(S.ym, -6)) + "-01", to = ymKey(S.ym) + "-31";
+// To stay well inside the free read quota, only the shown month and the one before are kept live
+// for everyone. The person being viewed on the analysis tab also gets the 6 months before that.
+// Longer spans (year view, all-time search, CSV) are fetched once on demand and cached.
+S.ranges = {}; S.dataSubs = {}; S.cache = {};
+function wantRange(uid) {
+  const long = S.tab === "analysis" && uid === S.viewing;
+  return ymKey(addMonths(S.ym, long ? -6 : -1)) + "-01|" + ymKey(S.ym) + "-31";
+}
+function syncData(force) {
   const waits = [];
   const once = () => { let res, rej; const p = new Promise((a, b) => { res = a; rej = b; }); waits.push(p); let done = false; return { ok: () => { if (!done) { done = true; res(); } }, ng: (e) => { if (!done) { done = true; rej(e); } } }; };
-  S.memberIds.forEach(uid => {
-    const w = once();
-    S.subs.data.push(S.store.watchRange(uid, from, to, false,
-      (l) => { S.data[uid] = l.map(normEntry); S.loaded[uid] = true; S.denied[uid] = false; w.ok(); queueRender(); },
-      () => { S.data[uid] = []; S.loaded[uid] = true; S.denied[uid] = true; isMe(uid) ? w.ng() : w.ok(); queueRender(); }));
-  });
-  const w = once();
-  S.subs.data.push(S.store.watchRange(me(), from, to, true, (l) => { S.priv = l.map(normEntry); S.privLoaded = true; w.ok(); queueRender(); }, () => { S.privLoaded = true; w.ng(); queueRender(); }));
+  // drop people who left the group
+  Object.keys(S.dataSubs).forEach(k => { const uid = k.replace(/#p$/, ""); if (!S.memberIds.includes(uid)) { S.dataSubs[k](); delete S.dataSubs[k]; delete S.ranges[k]; delete S.data[uid]; delete S.loaded[uid]; } });
+  const sub = (key, uid, priv) => {
+    const want = wantRange(uid);
+    if (!force && S.ranges[key] === want && S.dataSubs[key]) return;
+    S.dataSubs[key]?.();
+    S.ranges[key] = want;
+    const [from, to] = want.split("|"), w = once();
+    S.dataSubs[key] = priv
+      ? S.store.watchRange(uid, from, to, true, (l) => { S.priv = l.map(normEntry); S.privLoaded = true; w.ok(); queueRender(); }, () => { S.privLoaded = true; w.ng(); queueRender(); })
+      : S.store.watchRange(uid, from, to, false,
+        (l) => { S.data[uid] = l.map(normEntry); S.loaded[uid] = true; S.denied[uid] = false; w.ok(); queueRender(); },
+        () => { S.data[uid] = []; S.loaded[uid] = true; S.denied[uid] = true; isMe(uid) ? w.ng() : w.ok(); queueRender(); });
+  };
+  S.memberIds.forEach(uid => sub(uid, uid, false));
+  if (me()) sub(me() + "#p", me(), true);
   queueRender();
   const p = Promise.race([Promise.all(waits), new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), 8000))]);
   p.catch(() => {}); // only pull-to-refresh reports failures; background reloads stay quiet
   return p;
+}
+function stopData() { Object.values(S.dataSubs).forEach(f => { try { f(); } catch {} }); S.dataSubs = {}; S.ranges = {}; }
+// One-time fetch of a long span (cached per person and span). Friends only ever get public records.
+function fetchSpan(uid, from, to) {
+  const key = uid + "|" + from + "|" + to;
+  if (S.cache[key]) return S.cache[key];
+  const job = { loading: true, list: [], error: false };
+  S.cache[key] = job;
+  const all = from === "all";
+  const get = (p) => all ? S.store.fetchAll(uid, p) : S.store.fetchRange(uid, from, to, p);
+  job.promise = Promise.all([get(false), isMe(uid) ? get(true) : Promise.resolve([])])
+    .then(([pub, priv]) => { job.list = pub.map(x => ({ ...normEntry(x), priv: false })).concat(priv.map(x => ({ ...normEntry(x), priv: true }))); })
+    .catch(() => { job.error = true; })
+    .finally(() => { job.loading = false; queueRender(); });
+  return job;
+}
+// A long-span list: the one-time fetch for older dates plus the live data for recent months,
+// so new or deleted records show up right away.
+function spanRecords(uid, job, from, to) {
+  const [lf, lt] = (S.ranges[uid] || "|").split("|");
+  const live = recordsOf(uid).filter(x => (from === "all" || (x.date >= from && x.date <= to)));
+  return job.list.filter(x => !(lf && x.date >= lf && x.date <= lt)).concat(live);
 }
 function setViewing(uid, fromCarousel) {
   if (!S.memberIds.includes(uid)) uid = me();
@@ -692,9 +766,10 @@ function setViewing(uid, fromCarousel) {
   S.viewing = uid; S.an.sel = ""; S.list.cat = ""; S.list.type = "all";
   buzz(5);
   if (!fromCarousel) S.homeKey = null; // re-centre the wallet on the chosen card
+  syncData();
   render();
 }
-function shiftMonth(d) { S.ym = addMonths(S.ym, d); S.an.sel = ""; S.homeKey = null; watchData(true); render(); }
+function shiftMonth(d) { S.ym = addMonths(S.ym, d); S.an.sel = ""; S.homeKey = null; S.list.day = ""; syncData(); render(); }
 
 /* ================= header & tabs ================= */
 function renderHeader() {
@@ -705,7 +780,7 @@ function renderHeader() {
   $("monthnav").hidden = S.tab === "friends";
 }
 function go(tab) {
-  if (S.tab !== tab) { S.tab = tab; buzz(4); }
+  if (S.tab !== tab) { S.tab = tab; buzz(4); if (S.user) syncData(); }
   document.querySelectorAll(".tab").forEach(b => { if (b.dataset.go === tab) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); });
   document.querySelectorAll(".screen").forEach(s => {
     const on = s.dataset.tab === tab;
@@ -796,6 +871,13 @@ function renderHomeBelow() {
   const st = monthStats(uid, S.ym), recent = sortEntries(recordsOf(uid)).filter(x => x.date <= ymKey(S.ym) + "-31").slice(0, 6);
   const kids = [];
   if (mine) {
+    // this month's income, spending and what is left
+    const bal = st.income - st.spent;
+    kids.push(h("div", { class: "card balance" },
+      h("div", null, h("small", null, "収入"), h("strong", { class: "num delta-down" }, st.income ? "+" + yen(st.income) : "¥0")),
+      h("div", null, h("small", null, "支出"), h("strong", { class: "num" }, yen(st.spent))),
+      h("div", null, h("small", null, "収支"), h("strong", { class: "num " + (!st.income ? "" : bal < 0 ? "delta-up" : "delta-down") }, !st.income ? "—" : (bal > 0 ? "+" : "") + yen(bal))),
+      !st.income ? h("p", { class: "help", style: "grid-column:1/-1;font-size:.72rem" }, "収入を記録すると、残りのお金がわかります（＋の入力画面で「収入」を選びます）。") : null));
     const budget = Number(S.prefs.budget || 0);
     if (budget) {
       const pct = st.spent / budget, isNow = ymKey(S.ym) === ymKey(thisMonth()), left = daysIn(S.ym) - new Date().getDate() + 1;
@@ -879,7 +961,38 @@ function detailSheet(x, uid) {
         if (await confirmModal({ title: "この記録を削除しますか？", body: `${titleOf(x)}・${yen(x.amount)}`, okLabel: "削除", danger: true })) { closeSheet(handle); deleteWithUndo(x); }
       } }, "削除"),
       h("button", { type: "button", class: "btn primary press", onclick: () => { closeSheet(handle); openEntry(x); } }, "編集"))
-      : h("p", { class: "help" }, "友達の記録は見るだけで、編集や削除はできません。")), { label: "記録の詳細" });
+      : h("p", { class: "help" }, "友達の記録は見るだけで、編集や削除はできません。"),
+    x.priv ? null : reactionsBox(x, uid)), { label: "記録の詳細" });
+}
+// Likes and short comments on a public record. Loaded only when the detail opens (keeps reads low).
+function reactionsBox(x, owner) {
+  const box = h("div", { class: "card reacts" }, h("div", { class: "sk line", style: "width:40%" }));
+  const mine = isMe(owner);
+  let list = [];
+  const draw = () => {
+    const myR = list.find(r => r.uid === me());
+    const likes = list.filter(r => r.like), comments = list.filter(r => r.text).sort((a, b) => (a.at || 0) - (b.at || 0));
+    const input = h("input", { class: "text", id: "rcText", maxlength: 60, placeholder: "ひとことコメント（60文字まで）", value: myR?.text || "", enterkeyhint: "send" });
+    const send = async (patch) => {
+      const next = { like: !!(myR?.like), text: myR?.text || "", ...patch };
+      try {
+        if (!next.like && !next.text) await S.store.deleteReaction(owner, x.id, me()); else await S.store.setReaction(owner, x.id, me(), { like: next.like, text: next.text.slice(0, 60) });
+        await load(); buzz(6);
+      } catch { fail("送れませんでした。通信状態を確認してください"); }
+    };
+    fill(box,
+      h("div", { class: "rhead" },
+        mine ? h("span", { class: "likes" }, "❤ ", h("b", null, likes.length)) :
+          h("button", { type: "button", class: "likebtn press" + (myR?.like ? " on" : ""), "aria-pressed": String(!!myR?.like), onclick: () => send({ like: !myR?.like }) }, myR?.like ? "❤ いいね済み" : "♡ いいね", likes.length ? h("b", null, " " + likes.length) : null),
+        likes.length ? h("small", { class: "help" }, likes.map(r => nameOf(r.uid)).join("・")) : h("small", { class: "help" }, mine ? "まだ反応はありません" : "")),
+      comments.length ? h("div", { class: "comments" }, comments.map(r => h("div", { class: "cmt" }, avatar(r.uid, 26), h("div", { class: "grow" }, h("strong", null, nameOf(r.uid)), h("span", null, r.text)),
+        (r.uid === me() || mine) ? h("button", { type: "button", class: "linklike danger", style: "font-size:.75rem", onclick: () => r.uid === me() ? send({ text: "" }) : S.store.deleteReaction(owner, x.id, r.uid).then(load).catch(() => fail("消せませんでした")) }, "消す") : null))) : null,
+      mine ? null : h("form", { class: "row", style: "flex-wrap:nowrap", onsubmit: (e) => { e.preventDefault(); const t = input.value.trim(); if (t) send({ text: t }); } },
+        h("div", { style: "flex:1;min-width:0" }, input), h("button", { type: "submit", class: "btn small primary press" }, "送る")));
+  };
+  const load = async () => { try { list = await S.store.getReactions(owner, x.id); draw(); } catch { fill(box, h("p", { class: "help" }, "反応を読み込めませんでした。")); } };
+  load();
+  return box;
 }
 
 /* ================= LIST ================= */
@@ -888,42 +1001,70 @@ function renderList() {
   const L = S.list;
   const keepFocus = document.activeElement?.id === "listSearch";
   const caret = keepFocus ? document.activeElement.selectionStart : null;
-  const search = h("input", { class: "text", id: "listSearch", type: "search", enterkeyhint: "search", placeholder: "店舗・メモ・費目・金額で探す", value: L.q, "aria-label": "明細を検索",
+  const viewSeg = segmented([["list", "リスト"], ["cal", "カレンダー"]], L.view, (v) => { L.view = v; L.day = ""; if (v === "cal") L.scope = "month"; setTimeout(renderList, 140); }, "表示の切り替え");
+  const allTime = L.scope === "all" && L.view === "list";
+  const search = h("input", { class: "text", id: "listSearch", type: "search", enterkeyhint: "search", placeholder: allTime ? "全期間から探す（店舗・メモ・金額）" : "店舗・メモ・費目・金額で探す", value: L.q, "aria-label": "明細を検索",
     oninput: (e) => { L.q = e.target.value; renderList(); } });
   const types = [["all", "すべて"], ["expense", "支出"], ["income", "収入"]].concat(mine ? [["private", "非公開"]] : []);
-  const cats = [...new Set(inMonth(recordsOf(uid), S.ym).map(x => x.category))];
+  let job = null;
+  if (allTime) job = fetchSpan(uid, "all", "all");
+  const source = allTime ? (job.loading ? [] : spanRecords(uid, job, "all", "all")) : inMonth(recordsOf(uid), S.ym);
+  const cats = [...new Set(source.map(x => x.category))];
   const head = h("div", { class: "listhead" },
-    h("div", { class: "search" }, ic("search"), search, L.q ? h("button", { type: "button", class: "clear", "aria-label": "検索をクリア", onclick: () => { L.q = ""; renderList(); } }, "×") : null),
-    h("div", { class: "chips", role: "group", "aria-label": "絞り込み" },
+    viewSeg,
+    L.view === "list" ? h("div", { class: "search" }, ic("search"), search, L.q ? h("button", { type: "button", class: "clear", "aria-label": "検索をクリア", onclick: () => { L.q = ""; renderList(); } }, "×") : null) : null,
+    L.view === "list" ? h("div", { class: "chips", role: "group", "aria-label": "絞り込み" },
+      h("button", { type: "button", class: "chip scope", "aria-pressed": String(allTime), onclick: () => { L.scope = allTime ? "month" : "all"; L.cat = ""; buzz(4); renderList(); } }, "期間：" + (allTime ? "全期間" : `${S.ym.m}月`)),
       types.map(([v, l]) => h("button", { type: "button", class: "chip", "aria-pressed": String(L.type === v && !L.cat), onclick: () => { L.type = v; L.cat = ""; buzz(4); renderList(); } }, l)),
-      cats.map(c => h("button", { type: "button", class: "chip", "aria-pressed": String(L.cat === c), onclick: () => { L.cat = L.cat === c ? "" : c; L.type = "all"; buzz(4); renderList(); } }, catIcon(c, true), c))));
-  if (!isLoaded(uid)) { fill(scr, head, h("div", { class: "day-h" }, h("span", { class: "sk line", style: "width:80px" })), skRows(5)); return; }
+      cats.map(c => h("button", { type: "button", class: "chip", "aria-pressed": String(L.cat === c), onclick: () => { L.cat = L.cat === c ? "" : c; L.type = "all"; buzz(4); renderList(); } }, catIcon(c, true), c))) : null);
+  if (!isLoaded(uid) || (job && job.loading)) { fill(scr, head, h("div", { class: "day-h" }, h("span", { class: "sk line", style: "width:80px" })), skRows(5)); return; }
   if (S.denied[uid]) { fill(scr, head, emptyState("表示できません", "この人が閲覧を許可していないため、記録は見られません。", null, "lock")); return; }
+  if (job && job.error) { fill(scr, head, emptyState("読み込めませんでした", "通信状態を確認して、もう一度お試しください。", { label: "もう一度", fn: () => { delete S.cache[uid + "|all|all"]; renderList(); } }, "warn")); return; }
+  if (L.view === "cal") {
+    const rows = L.day ? sortEntries(recordsOf(uid).filter(x => x.date === L.day)) : [];
+    const cal = calendarCard(uid, S.ym, { sel: L.day, onDay: (d) => { L.day = L.day === d ? "" : d; buzz(4); renderList(); } });
+    const below = !L.day ? h("p", { class: "help", style: "text-align:center" }, "日付をタップすると、その日の明細が下に出ます。")
+      : h("section", { class: "day" },
+        h("div", { class: "day-h" }, h("span", null, dayLabel(L.day)), h("span", { class: "num" }, yen(expTotal(rows)))),
+        rows.length ? entryRows(rows, uid) : h("p", { class: "help", style: "padding:6px 2px" }, "この日の記録はありません。"),
+        mine ? h("div", { class: "row", style: "margin-top:8px" },
+          h("button", { type: "button", class: "btn small press", onclick: () => openEntry(null, { date: L.day }) }, "この日に記録する"),
+          !rows.length && L.day <= today() ? h("button", { type: "button", class: "btn small press", onclick: () => daySheet(uid, L.day) }, "支出ゼロにする") : null) : null);
+    fill(scr, head, h("div", { class: "stack" }, cal, below));
+    return;
+  }
   const q = fold(L.q.trim()), qNum = L.q.replace(/[^0-9]/g, "");
-  let rows = inMonth(recordsOf(uid), S.ym);
+  let rows = source;
   if (L.type === "expense") rows = rows.filter(isExp);
   if (L.type === "income") rows = rows.filter(x => x.type === "income");
   if (L.type === "private") rows = rows.filter(x => x.priv);
   if (L.cat) rows = rows.filter(x => x.category === L.cat);
   if (q) rows = rows.filter(x => fold([x.shop, x.memo, x.category, x.sub, x.pay].join(" ")).includes(q) || (qNum && String(x.amount).includes(qNum)));
   rows = sortEntries(rows);
-  const days = {}; rows.forEach(x => (days[x.date] = days[x.date] || []).push(x));
+  const shown = allTime ? rows.slice(0, 300) : rows;
+  const days = {}; shown.forEach(x => (days[x.date] = days[x.date] || []).push(x));
+  let lastYm = "";
   const body = rows.length ? [
-    h("div", { class: "resultline" }, `${rows.length}件・支出 ${yen(expTotal(rows))}` + (incTotal(rows) ? `・収入 ${yen(incTotal(rows))}` : "") + (mine ? "" : "（公開分）")),
-    Object.keys(days).sort().reverse().map(d => h("section", { class: "day" },
-      h("div", { class: "day-h" }, h("span", null, dayLabel(d)), h("span", { class: "num" }, yen(expTotal(days[d])))), entryRows(days[d], uid)))]
-    : (L.q || L.cat || L.type !== "all") ? emptyState("見つかりませんでした", "条件を変えて探してみてください。", { label: "条件をクリア", fn: () => { Object.assign(L, { q: "", cat: "", type: "all" }); renderList(); } }, "search")
+    h("div", { class: "resultline" }, (allTime ? "全期間・" : "") + `${rows.length}件・支出 ${yen(expTotal(rows))}` + (incTotal(rows) ? `・収入 ${yen(incTotal(rows))}` : "") + (mine ? "" : "（公開分）")),
+    Object.keys(days).sort().reverse().map(d => {
+      const ymH = allTime && d.slice(0, 7) !== lastYm ? (lastYm = d.slice(0, 7), h("div", { class: "ym-h" }, `${d.slice(0, 4)}年${Number(d.slice(5, 7))}月`)) : null;
+      return [ymH, h("section", { class: "day" },
+        h("div", { class: "day-h" }, h("span", null, allTime ? `${Number(d.slice(5, 7))}/${Number(d.slice(8))}${dayLabel(d).match(/（.）/)?.[0] || ""}` : dayLabel(d)), h("span", { class: "num" }, yen(expTotal(days[d])))), entryRows(days[d], uid))];
+    }),
+    rows.length > shown.length ? h("p", { class: "help", style: "text-align:center" }, `新しい順に${shown.length}件を表示しています。言葉や金額で絞り込むと、もっと前の記録も出ます。`) : null]
+    : (L.q || L.cat || L.type !== "all") ? emptyState("見つかりませんでした", allTime ? "全期間から探しましたが、見つかりませんでした。" : "条件を変えるか、「全期間」に切り替えて探してみてください。", allTime ? { label: "条件をクリア", fn: () => { Object.assign(L, { q: "", cat: "", type: "all" }); renderList(); } } : { label: "全期間から探す", fn: () => { L.scope = "all"; renderList(); } }, "search")
     : emptyState(mine ? "まだ支出がありません" : "公開された記録はありません", mine ? "最初の支出を追加しましょう。" : null, mine ? { label: "支出を記録する", fn: () => openEntry() } : null);
-  fill(scr, head, ...[body].flat());
+  fill(scr, head, ...[body].flat(3));
   if (keepFocus) { search.focus(); try { search.setSelectionRange(caret, caret); } catch {} }
 }
 
 /* ================= ANALYSIS ================= */
 function renderAnalysis() {
   const scr = $("s-analysis"), uid = S.viewing, mine = isMe(uid), A = S.an;
-  const seg = segmented([["month", `${S.ym.m}月`], ["prev", `${addMonths(S.ym, -1).m}月`], ["6m", "6か月"]], A.period, (v) => { A.period = v; A.sel = ""; setTimeout(renderAnalysis, 160); }, "期間");
+  const seg = segmented([["month", `${S.ym.m}月`], ["prev", `${addMonths(S.ym, -1).m}月`], ["6m", "6か月"], ["year", "年間"]], A.period, (v) => { A.period = v; A.sel = ""; setTimeout(renderAnalysis, 160); }, "期間");
   if (!isLoaded(uid)) { fill(scr, h("div", { class: "stack" }, seg, h("div", { class: "insights" }, h("div", { class: "insight sk loading-delay", style: "height:84px" })), skCard(150), skCard(120), skCard(140))); return; }
   if (S.denied[uid]) { fill(scr, emptyState("表示できません", "この人が閲覧を許可していないため、分析は見られません。", null, "lock")); return; }
+  if (A.period === "year") { fill(scr, h("div", { class: "stack" }, seg, ...yearView(uid))); return; }
   const all = recordsOf(uid);
   const ym = A.period === "prev" ? addMonths(S.ym, -1) : S.ym;
   const range = A.period === "6m" ? all.filter(x => x.date >= ymKey(addMonths(S.ym, -5)) + "-01" && x.date <= ymKey(S.ym) + "-31") : inMonth(all, ym);
@@ -938,6 +1079,52 @@ function renderAnalysis() {
   if (A.period !== "6m") kids.push(compareCard(uid, ym));
   if (!mine) kids.push(h("p", { class: "help", style: "text-align:center" }, "友達が公開した記録だけで集計しています。非公開の記録は含まれません。"));
   fill(scr, h("div", { class: "stack" }, kids));
+}
+// Annual summary: fetched once per person and year (then cached), merged with live recent months.
+function yearView(uid) {
+  const A = S.an, y = A.year || (A.year = S.ym.y), mine = isMe(uid);
+  const from = `${y}-01-01`, to = `${y}-12-31`, job = fetchSpan(uid, from, to);
+  const nav = h("div", { class: "yearnav" },
+    h("button", { type: "button", class: "iconbtn press", "aria-label": "前の年", onclick: () => { A.year = y - 1; A.sel = ""; renderAnalysis(); } }, "‹"),
+    h("strong", null, `${y}年`),
+    h("button", { type: "button", class: "iconbtn press", "aria-label": "次の年", disabled: y >= thisMonth().y ? true : null, onclick: () => { A.year = y + 1; A.sel = ""; renderAnalysis(); } }, "›"));
+  if (job.loading) return [nav, skCard(150), skCard(200)];
+  if (job.error) return [nav, emptyState("読み込めませんでした", "通信状態を確認して、もう一度お試しください。", { label: "もう一度", fn: () => { delete S.cache[uid + "|" + from + "|" + to]; renderAnalysis(); } }, "warn")];
+  const list = spanRecords(uid, job, from, to), exp = list.filter(isExp), inc = incTotal(list), total = sumOf(exp);
+  const months = Array.from({ length: 12 }, (_, i) => ({ y, m: i + 1 }));
+  const totals = months.map(m => expTotal(inMonth(list, m)));
+  const elapsed = y < thisMonth().y ? 12 : y === thisMonth().y ? thisMonth().m : 0;
+  const used = totals.filter(v => v > 0).length;
+  const avg = elapsed ? total / elapsed : 0;
+  const maxI = totals.indexOf(Math.max(...totals));
+  const max = Math.max(1, ...totals);
+  const W = 320, H = 160, top = 18, bottom = 22, bw = 18, gap = (W - 12 * bw) / 12, sy = (v) => H - bottom - (v / max) * (H - top - bottom);
+  const bars = [];
+  const chart = svg("svg", { viewBox: `0 0 ${W} ${H}`, class: "trend", role: "img", "aria-label": `${y}年の月ごとの支出` },
+    [0.5, 1].map(f => svg("line", { x1: 0, x2: W, y1: sy(max * f), y2: sy(max * f), style: "stroke:var(--line);stroke-width:1" })),
+    months.map((m, i) => {
+      const x = gap / 2 + i * (bw + gap), r = svg("rect", { x, y: H - bottom, width: bw, height: 0, rx: 4, style: `fill:${i === maxI && totals[i] ? "var(--brand)" : "var(--brand-soft)"};transition:y var(--d-chart) var(--ease),height var(--d-chart) var(--ease)` });
+      bars.push([r, sy(totals[i])]);
+      return [r, i === maxI && totals[i] ? svg("text", { x: x + bw / 2, y: sy(totals[i]) - 4, "text-anchor": "middle", "font-size": 9, style: "fill:var(--ink);font-weight:700", text: yenShort(totals[i]) }) : null,
+        svg("text", { x: x + bw / 2, y: H - 6, "text-anchor": "middle", "font-size": 10, style: "fill:var(--muted)", text: String(m.m) })];
+    }),
+    avg ? [svg("line", { x1: 0, x2: W, y1: sy(avg), y2: sy(avg), "stroke-dasharray": "4 4", style: "stroke:var(--muted);stroke-width:1" }),
+      svg("text", { x: W - 2, y: sy(avg) - 4, "text-anchor": "end", "font-size": 9, style: "fill:var(--muted)", text: "平均 " + yenShort(avg) })] : null);
+  requestAnimationFrame(() => requestAnimationFrame(() => bars.forEach(([r, yy]) => { r.setAttribute("y", yy); r.setAttribute("height", Math.max(0, H - bottom - yy)); })));
+  const summary = h("div", { class: "card" },
+    h("p", { class: "label" }, `${y}年のまとめ`),
+    h("div", { class: "balance plain" },
+      h("div", null, h("small", null, "支出の合計"), h("strong", { class: "num" }, yen(total))),
+      h("div", null, h("small", null, "収入の合計"), h("strong", { class: "num delta-down" }, inc ? "+" + yen(inc) : "¥0")),
+      h("div", null, h("small", null, "収支"), h("strong", { class: "num " + (inc - total < 0 ? "delta-up" : "delta-down") }, (inc - total > 0 ? "+" : "") + yen(inc - total)))),
+    chart,
+    h("div", { class: "calsum" },
+      avg ? h("span", null, "月の平均 ", h("b", { class: "num" }, yen(avg))) : null,
+      totals[maxI] ? h("span", null, "いちばん多い月 ", h("b", { class: "num" }, `${maxI + 1}月 ${yen(totals[maxI])}`)) : null,
+      h("span", null, "記録した月 ", h("b", { class: "num" }, `${used}か月`))));
+  const out = [nav, summary, donutCard(exp, `${y}年のカテゴリ別`, uid)];
+  if (!mine) out.push(h("p", { class: "help", style: "text-align:center" }, "友達が公開した記録だけで集計しています。"));
+  return out;
 }
 function insightsRow(uid, ym) {
   const all = recordsOf(uid), cur = inMonth(all, ym).filter(isExp), prev = inMonth(all, addMonths(ym, -1)).filter(isExp), mine = isMe(uid);
@@ -990,7 +1177,7 @@ function donutCard(exp, title, uid) {
     onclick: () => { A.sel = sel === c ? "" : c; buzz(4); renderAnalysis(); } },
     h("i", { style: `background:${cvar(catOf(c).c)}` }), h("span", null, c), h("span", { class: "num" }, yen(v)), h("span", { class: "pct num" }, Math.round(v / total * 100) + "%"))));
   return h("div", { class: "card" }, h("div", { style: "display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px" }, h("p", { class: "label", style: "margin:0" }, title),
-    sel ? h("button", { type: "button", class: "btn small press", onclick: () => { S.list = { q: "", type: "all", cat: sel }; go("list"); } }, `${sel}の明細へ`) : null),
+    sel ? h("button", { type: "button", class: "btn small press", onclick: () => { S.list = { ...S.list, q: "", type: "all", cat: sel, view: "list", day: "" }; go("list"); } }, `${sel}の明細へ`) : null),
     h("div", { class: "donut" }, g, legend),
     sel ? subBreakdown(exp.filter(x => x.category === sel)) : null);
 }
@@ -1002,7 +1189,7 @@ function subBreakdown(list) {
 function budgetCard(uid, ym) {
   const mine = isMe(uid), all = recordsOf(uid), cur = inMonth(all, ym).filter(isExp), prev = inMonth(all, addMonths(ym, -1)).filter(isExp);
   const cb = mine ? (S.prefs.catBudgets || {}) : {};
-  const cats = [...new Set([...Object.keys(cb).filter(k => cb[k] > 0), ...sumBy(cur).map(p => p[0])])].filter(c => CAT[c]);
+  const cats = [...new Set([...Object.keys(cb).filter(k => cb[k] > 0), ...sumBy(cur).map(p => p[0])])].filter(c => CAT[c] || MY.cats.some(x => x.id === c));
   const head = h("div", { style: "display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:4px" },
     h("p", { class: "label", style: "margin:0" }, mine ? `${ym.m}月のカテゴリ予算` : `${ym.m}月のカテゴリ別`), mine ? h("button", { type: "button", class: "btn small press", onclick: budgetSheet }, "予算を設定") : null);
   if (!cats.length) return h("div", { class: "card" }, head, emptyState(mine ? "予算はまだありません" : "記録がありません", mine ? "カテゴリごとに予算を決めると、使った割合がバーで表示されます。" : null, null, "target"));
@@ -1013,7 +1200,7 @@ function budgetCard(uid, ym) {
     const bar = h("div", { class: "bar" + (b && pct > 1 ? " over" : b && pct > .85 ? " near" : "") }, h("i", { style: `background:${b ? "" : cvar(catOf(c).c)}` }));
     requestAnimationFrame(() => requestAnimationFrame(() => { bar.firstChild.style.width = Math.min(100, pct * 100) + "%"; }));
     const d = used - pv;
-    return h("button", { type: "button", class: "cbud press", onclick: () => { S.list = { q: "", type: "all", cat: c }; go("list"); }, "aria-label": `${c} ${yen(used)}${b ? " 予算 " + yen(b) : ""}` },
+    return h("button", { type: "button", class: "cbud press", onclick: () => { S.list = { ...S.list, q: "", type: "all", cat: c, view: "list", day: "" }; go("list"); }, "aria-label": `${c} ${yen(used)}${b ? " 予算 " + yen(b) : ""}` },
       catIcon(c), h("div", { class: "h" }, h("strong", null, c), h("span", { class: "num" }, yen(used), b ? h("span", { class: "help", style: "display:inline" }, ` / ${yen(b)}`) : null)), bar,
       h("div", { class: "s" }, b ? (used > b ? h("span", { class: "over" }, `${yen(used - b)} オーバー`) : h("span", null, `残り ${yen(b - used)}`)) : h("span", null, mine ? "予算なし" : ""),
         pv ? h("span", { class: d > 0 ? "delta-up" : "delta-down" }, `先月比 ${d > 0 ? "+" : ""}${yen(d)}`) : h("span", null, "")));
@@ -1041,7 +1228,7 @@ function trendCard(uid) {
 }
 // Month calendar: each day shows how much was spent. Days with no record and days marked
 // "支出ゼロ" are kept visually distinct.
-function calendarCard(uid, ym) {
+function calendarCard(uid, ym, opts = {}) {
   const mine = isMe(uid), all = inMonth(recordsOf(uid), ym), exp = all.filter(isExp);
   const noSpend = new Set(mine ? (S.prefs.noSpend || []) : []);
   const byDay = {}; exp.forEach(x => byDay[x.date] = (byDay[x.date] || 0) + x.amount);
@@ -1058,8 +1245,8 @@ function calendarCard(uid, ym) {
       const future = d > tdy, zero = !v && noSpend.has(d);
       const level = v ? Math.min(4, 1 + Math.floor(v / max * 4 - 0.0001)) : 0;
       const label = future ? "これからの日" : v ? yen(v) : zero ? "支出ゼロ" : "記録なし";
-      return h("button", { type: "button", class: ["day", future ? "future" : "", v ? "has l" + level : "", zero ? "zero" : "", d === tdy ? "today" : ""].filter(Boolean).join(" "),
-        "aria-label": `${ym.m}月${i + 1}日 ${label}`, onclick: () => daySheet(uid, d) },
+      return h("button", { type: "button", class: ["day", future ? "future" : "", v ? "has l" + level : "", zero ? "zero" : "", d === tdy ? "today" : "", opts.sel === d ? "sel" : ""].filter(Boolean).join(" "),
+        "aria-label": `${ym.m}月${i + 1}日 ${label}`, "aria-pressed": opts.onDay ? String(opts.sel === d) : null, onclick: () => opts.onDay ? opts.onDay(d) : daySheet(uid, d) },
         h("span", { class: "dn" + (dow === 0 ? " sun" : dow === 6 ? " sat" : "") }, i + 1),
         v ? h("span", { class: "dv num" }, yenShort(v)) : zero ? h("span", { class: "dv zero" }, "0円") : null,
         incDays.has(d) ? h("i", { class: "inc", "aria-hidden": "true" }) : null);
@@ -1072,7 +1259,7 @@ function calendarCard(uid, ym) {
       h("span", null, "使った日 ", h("b", { class: "num" }, `${daysWith}日`)),
       daysSoFar ? h("span", null, "1日平均 ", h("b", { class: "num" }, yen(total / daysSoFar))) : null,
       daysWith ? h("span", null, "いちばん多い日 ", h("b", { class: "num" }, yen(Math.max(...Object.values(byDay))))) : null),
-    h("p", { class: "help", style: "margin-top:6px;font-size:.72rem" }, mine
+    opts.onDay ? null : h("p", { class: "help", style: "margin-top:6px;font-size:.72rem" }, mine
       ? "日付をタップすると、その日の明細が開きます。使わなかった日は「支出ゼロ」にできます。緑の点は収入がある日です。"
       : "公開された記録がある日だけ金額が出ます。"));
 }
@@ -1152,7 +1339,7 @@ function suggestShops(q) {
   const mine = Object.keys(score).filter(s => !f || fold(s).includes(f)).sort((a, b) => (fold(b).startsWith(f) - fold(a).startsWith(f)) || score[b] - score[a]).slice(0, 6)
     .map(s => ({ value: s, label: s, sub: catLabel(meta[s]) + (meta[s].pay ? "・" + meta[s].pay : ""), tag: "履歴", kind: "shop", hist: meta[s] }));
   const known = f ? KNOWN_SHOPS.filter(s => fold(s).includes(f) && !score[s]).slice(0, 4).map(s => { const [c, sb] = guessCat(s); return { value: s, label: s, sub: sb ? `${c} › ${sb}` : c, tag: "候補", kind: "shop" }; }) : [];
-  const cats = f ? CATS.flatMap(c => c.subs.filter(s => s !== "その他").map(s => [c.id, s])).filter(([c, s]) => fold(s).includes(f) || fold(c).includes(f)).slice(0, 3)
+  const cats = f ? expCats().flatMap(c => c.subs.filter(s => s !== "その他").map(s => [c.id, s])).filter(([c, s]) => fold(s).includes(f) || fold(c).includes(f)).slice(0, 3)
     .map(([c, s]) => ({ value: "", label: `${c} › ${s}`, sub: "カテゴリを選ぶ", tag: "カテゴリ", kind: "cat", cat: c, subName: s })) : [];
   return mine.concat(known, cats);
 }
@@ -1206,11 +1393,12 @@ function openEntry(edit, preset = {}) {
   const isEdit = !!edit;
   const hiddenNow = () => hiddenCats();
   const st = {
-    type: edit?.type || "expense", amount: edit ? String(edit.amount) : "", cat: edit?.category || (ls.get("kakeibo.cat") && CAT[ls.get("kakeibo.cat")] && !INCOME_CATS.some(c => c.id === ls.get("kakeibo.cat")) ? ls.get("kakeibo.cat") : "食費"),
+    type: edit?.type || "expense", amount: edit ? String(edit.amount) : "", cat: edit?.category || (expCats().some(c => c.id === ls.get("kakeibo.cat")) ? ls.get("kakeibo.cat") : "食費"),
     sub: edit?.sub || "", date: edit?.date || preset.date || today(), time: edit?.time || "", shop: edit?.shop || "", memo: edit?.memo || "", pay: edit?.pay || "",
     pub: edit ? !edit.priv : !!S.share.defaultPublic, catTouched: isEdit, fromFav: false, busy: false,
   };
-  const catsFor = () => st.type === "income" ? INCOME_CATS : CATS;
+  const catsFor = () => st.type === "income" ? incCats() : expCats();
+  let cont = ls.get("kakeibo.cont") === "1";
   const body = h("div", { class: "entry stack", style: "gap:8px" });
   const saveBtn = h("button", { type: "button", class: "save", id: "saveBtn" }, ic("check", { "stroke-width": 3 }), isEdit ? "更新" : "保存");
   const favRow = h("div", { class: "favrow", "aria-label": "よく使う項目" });
@@ -1251,8 +1439,10 @@ function openEntry(edit, preset = {}) {
     fill(body,
       // row 1: expense / income
       h("div", { class: "toprow" },
-        h("div", { class: "typeseg" }, segmented([["expense", "支出"], ["income", "収入"]], st.type, (v) => { st.type = v; st.sub = ""; st.cat = (v === "income" ? INCOME_CATS : CATS)[0].id; if (v === "income") st.pub = false; setTimeout(draw, 120); }, "支出か収入か")),
+        h("div", { class: "typeseg" }, segmented([["expense", "支出"], ["income", "収入"]], st.type, (v) => { st.type = v; st.sub = ""; st.cat = (v === "income" ? incCats() : expCats())[0].id; if (v === "income") st.pub = false; setTimeout(draw, 120); }, "支出か収入か")),
         h("div", { style: "flex:1" }),
+        !isEdit ? h("button", { type: "button", class: "mchip contchip press" + (cont ? " on" : ""), "aria-pressed": String(cont),
+          onclick: () => { cont = !cont; ls.set("kakeibo.cont", cont ? "1" : null); buzz(4); draw(); toast(cont ? "保存したあと、続けて次を入力できます" : "保存したら入力画面を閉じます"); } }, cont ? "✓ 続けて入力" : "続けて入力") : null,
         isEdit ? h("button", { type: "button", class: "iconbtn sm press", "aria-label": "この記録を削除", style: "color:var(--danger)", onclick: async () => {
           if (await confirmModal({ title: "この記録を削除しますか？", body: `${titleOf(edit)}・${yen(edit.amount)}`, okLabel: "削除", danger: true })) { closeSheet(handle); deleteWithUndo(edit); }
         } }, ic("trash")) : null),
@@ -1281,7 +1471,7 @@ function openEntry(edit, preset = {}) {
       h("button", { type: "button", class: "chip dashed", onclick: () => favSheet(st, draw) }, "＋ 登録"));
   };
   const applyFav = (f) => {
-    st.type = f.t || "expense"; st.cat = CAT[f.c] ? f.c : "その他"; st.sub = f.s || ""; st.memo = f.m || ""; st.shop = f.sh || ""; st.pay = f.p || st.pay; st.catTouched = true;
+    st.type = f.t || "expense"; st.cat = allCats().some(c => c.id === f.c) ? f.c : "その他"; st.sub = f.s || ""; st.memo = f.m || ""; st.shop = f.sh || ""; st.pay = f.p || st.pay; st.catTouched = true;
     if (f.a) { st.amount = String(f.a); st.fromFav = true; }
     shopIn.value = st.shop; memoIn.value = st.memo; buzz(6); draw();
     toast(f.a ? "入力しました。保存を押すと記録されます" : "内容を入れました。金額を入れて保存してください");
@@ -1308,7 +1498,11 @@ function openEntry(edit, preset = {}) {
     try {
       if (!isEdit) {
         const id = await S.store.addEntry(me(), data, !pub);
-        closeSheet(handle);
+        if (cont) {
+          // stay on the page for the next record: keep the date, category and payment, clear the rest
+          st.amount = ""; st.shop = ""; st.memo = ""; st.sub = ""; st.busy = false; st.fromFav = false;
+          shopIn.value = ""; memoIn.value = ""; draw(); buzz(8);
+        } else closeSheet(handle);
         ok(st.type === "income" ? "収入を保存しました" : "支出を保存しました", { action: { label: "取り消す", fn: () => S.store.deleteEntry(me(), id, !pub).then(() => toast("取り消しました")).catch(() => fail("取り消せませんでした")) } });
       } else {
         const before = { ...edit }, wasPriv = !!edit.priv;
@@ -1466,7 +1660,7 @@ function shareSheet() {
           }, "新しい記録を最初から公開する"))),
       h("div", { class: "group" },
         accRow("費目ごとの共有", hidden.size ? `${hidden.size}個の費目を共有していません` : "すべての費目を共有できます",
-          h("div", null, ALL_CATS.map(c => h("div", { class: "cell" }, catIcon(c.id, true), h("span", { class: "grow" }, h("strong", null, c.id), h("small", null, INCOME_CATS.includes(c) ? "収入" : "支出")),
+          h("div", null, allCats().map(c => h("div", { class: "cell" }, catIcon(c.id, true), h("span", { class: "grow" }, h("strong", null, c.id), h("small", null, incCats().some(x => x.id === c.id) ? "収入" : "支出")),
             switchEl("shc-" + c.id, !hidden.has(c.id), async (v, el) => {
               const affected = mine.filter(x => !x.priv && x.category === c.id).length;
               const okd = await confirmModal(v
@@ -1506,7 +1700,7 @@ function shareSheet() {
 function budgetSheet() {
   const cb = { ...(S.prefs.catBudgets || {}) };
   const total = h("input", { class: "text num", id: "bdTotal", inputmode: "numeric", placeholder: "例：90000", value: S.prefs.budget || "", "aria-label": "月全体の予算" });
-  const inputs = CATS.map(c => [c.id, h("input", { class: "text num", inputmode: "numeric", placeholder: "なし", value: cb[c.id] || "", "aria-label": `${c.id}の予算`, style: "max-width:130px;min-height:40px" })]);
+  const inputs = expCats().map(c => [c.id, h("input", { class: "text num", inputmode: "numeric", placeholder: "なし", value: cb[c.id] || "", "aria-label": `${c.id}の予算`, style: "max-width:130px;min-height:40px" })]);
   let handle;
   handle = openSheet(h("div", { class: "stack" }, h("div", { class: "head" }, h("h2", null, "予算")),
     h("p", { class: "help" }, "予算は自分にしか見えません。空欄や0にすると、その予算はなくなります。"),
@@ -1596,20 +1790,176 @@ function helpSheet() {
       h("li", null, "記録：下の＋から。金額を入れ、カテゴリを選んで「保存」。店舗名は、入力の途中で過去の記録や有名店の候補が出ます。"),
       h("li", null, "ホーム：カードを左右にスワイプすると、自分と友達の家計簿を切り替えられます。友達の家計簿は「閲覧のみ」です。"),
       h("li", null, "明細：左にスワイプすると編集・削除。タップで詳細が開きます。"),
+      h("li", null, "明細：上の「カレンダー」で日ごとに見られます。「○月のみ」を押すと全期間から検索できます。"),
+      h("li", null, "固定費：メニューの「固定費・毎月の収入」に登録すると、毎月その日に自動で記録されます。"),
+      h("li", null, "続けて入力：記録画面の「続けて入力」をオンにすると、保存したあとも画面が閉じずに次を入れられます。"),
+      h("li", null, "いいね・コメント：友達の公開された記録をタップすると、いいねやひとことコメントができます。"),
       h("li", null, "更新：画面の上から下に引っ張ると、最新の情報に更新します。"),
       h("li", null, "公開：記録は最初は非公開です。公開した記録だけが友達に見えます。費目ごと・友達ごとの設定は「共有設定」から。"),
       h("li", null, "安全：見られる範囲はサーバー側のルールでも守っています。非公開の記録・予算・よく使う項目は、ほかの人のスマホには一切送られません。"),
       h("li", null, "レシートの読み取りはスマホの中で行い、写真はどこにも送られません。PayPayの取り込みも、PayPayのパスワードは使いません。")))), { label: "使い方" });
 }
 async function copy(t) { try { await navigator.clipboard.writeText(t); ok("コピーしました"); } catch { warn("コピーできませんでした。長押しで選んでください"); } }
-function exportCSV() {
-  const all = recordsOf(me());
+async function exportCSV() {
+  toast("すべての記録を集めています…");
+  delete S.cache[me() + "|all|all"];
+  const job = fetchSpan(me(), "all", "all");
+  await job.promise;
+  if (job.error) { fail("記録を読み込めませんでした。通信状態を確認してください"); return; }
+  const all = spanRecords(me(), job, "all", "all");
+  if (!all.length) { warn("保存する記録がまだありません"); return; }
   const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
   const lines = [["日付", "時刻", "種類", "金額", "カテゴリ", "内容", "店舗", "メモ", "支払方法", "公開", "取込元"].map(esc).join(",")]
     .concat(sortEntries(all).reverse().map(x => [x.date, x.time, x.type === "income" ? "収入" : "支出", x.amount, x.category, x.sub, x.shop, x.memo, x.pay, x.priv ? "非公開" : "公開", x.source || ""].map(esc).join(",")));
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" });
-  const a = h("a", { href: URL.createObjectURL(blob), download: `kakeibo_${ymKey(S.ym).replace("-", "")}.csv` });
-  document.body.append(a); a.click(); a.remove(); ok("CSVを保存しました");
+  const a = h("a", { href: URL.createObjectURL(blob), download: `kakeibo_all_${today().replace(/-/g, "")}.csv` });
+  document.body.append(a); a.click(); a.remove(); ok(`${all.length}件をCSVで保存しました`);
+}
+
+/* ================= fixed costs (recurring) ================= */
+// Each item makes one record per month on its day. Ids are fixed per month (rc_<item>_<yyyymm>),
+// so opening the app on two phones never makes the same record twice.
+async function runRecurring() {
+  if (S.recurDone || !S.prefsLoaded || !S.user || S.recurBusy) return;
+  const items = Array.isArray(S.prefs.recurring) ? S.prefs.recurring : [];
+  if (!items.length) { S.recurDone = true; return; }
+  S.recurBusy = true;
+  const cur = thisMonth(), td = new Date().getDate();
+  let changed = false, made = 0;
+  try {
+    const next = [];
+    for (const r of items) {
+      const it = { ...r };
+      let m = it.last ? addMonths(ymOf(it.last), 1) : ymOf(it.since || ymKey(cur));
+      const lo = addMonths(cur, -11); if (ymKey(m) < ymKey(lo)) m = lo;
+      while (ymKey(m) <= ymKey(cur)) {
+        if (ymKey(m) === ymKey(cur) && td < it.day) break;
+        const id = `rc_${it.id}_${ymKey(m).replace("-", "")}`, priv = !it.pub || hiddenCats().includes(it.cat);
+        if (!(await S.store.entryExists(me(), id, priv))) {
+          await S.store.importEntries(me(), [{ id, type: it.type || "expense", date: `${ymKey(m)}-${pad(Math.min(it.day, daysIn(m)))}`, time: "", amount: it.amount,
+            category: it.cat, sub: it.sub || "", shop: it.name || "", memo: "固定費", pay: it.pay || "", source: "recurring" }], priv);
+          made++;
+        }
+        it.last = ymKey(m); changed = true; m = addMonths(m, 1);
+      }
+      next.push(it);
+    }
+    S.recurDone = true;
+    if (changed) await S.store.setPrefs(me(), { recurring: next });
+    if (made) toast(`固定費を${made}件記録しました`);
+  } catch { /* try again next time the app opens */ }
+  S.recurBusy = false;
+}
+function catSelect(type, cur, sub, id) {
+  return h("select", { class: "text", id, "aria-label": "カテゴリ" }, (type === "income" ? incCats() : expCats()).map(c => h("optgroup", { label: c.id },
+    h("option", { value: c.id + "|", selected: c.id === cur && !sub ? true : null }, c.id),
+    c.subs.map(sb => h("option", { value: c.id + "|" + sb, selected: c.id === cur && sb === sub ? true : null }, `${c.id} › ${sb}`)))));
+}
+function recurringSheet() {
+  let handle, type = "expense", pub = false;
+  const items = () => Array.isArray(S.prefs.recurring) ? S.prefs.recurring : [];
+  const box = h("div");
+  const name = h("input", { class: "text", id: "rcName", maxlength: 40, placeholder: "名前（例：家賃・Netflix）" });
+  const amount = h("input", { class: "text", id: "rcAmount", inputmode: "numeric", maxlength: 9, placeholder: "金額" });
+  const day = h("select", { class: "text", id: "rcDay", "aria-label": "毎月の日" }, Array.from({ length: 28 }, (_, i) => h("option", { value: i + 1, selected: i === 26 ? true : null }, `毎月${i + 1}日`)));
+  const pay = h("select", { class: "text", id: "rcPay", "aria-label": "支払方法" }, h("option", { value: "" }, "支払方法（なし）"), PAYS.map(p => h("option", { value: p }, p)));
+  const catWrap = h("div");
+  const drawCat = () => fill(catWrap, catSelect(type, type === "income" ? "給与" : "住まい", "", "rcCat"));
+  const err = h("div", { class: "err", role: "alert" });
+  const draw = () => fill(box, items().length ? h("div", { class: "card", style: "padding:4px 14px" }, items().map(r => h("div", { class: "row rcrow" },
+    catIcon(r.cat), h("div", { class: "grow" }, h("strong", null, r.name || r.cat), h("small", { class: "help", style: "display:block" }, `毎月${r.day}日・${r.cat}${r.sub ? " › " + r.sub : ""}${r.pub ? "・公開" : ""}`)),
+    h("span", { class: "num" + (r.type === "income" ? " delta-down" : "") }, (r.type === "income" ? "+" : "") + yen(r.amount)),
+    h("button", { type: "button", class: "linklike danger", "aria-label": `${r.name}をやめる`, onclick: async () => {
+      if (!await confirmModal({ title: `「${r.name || r.cat}」をやめますか？`, body: "これまでに記録した分はそのまま残ります。", okLabel: "やめる", danger: true })) return;
+      try { await S.store.setPrefs(me(), { recurring: items().filter(x => x.id !== r.id) }); toast("固定費をやめました"); setTimeout(draw, 300); } catch { fail("保存できませんでした"); }
+    } }, "やめる")))) : h("p", { class: "help" }, "まだありません。家賃・サブスク・給料など、毎月決まった記録を登録しておくと自動で入ります。"));
+  const add = async () => {
+    const a = Number(String(amount.value).replace(/[^0-9]/g, ""));
+    if (!a) { err.textContent = "金額を入れてください"; return; }
+    if (items().length >= 30) { err.textContent = "登録できるのは30件までです"; return; }
+    const [cat, sub] = $("rcCat").value.split("|");
+    const it = { id: Math.random().toString(36).slice(2, 9), name: name.value.trim().slice(0, 40), amount: a, cat, sub: sub || "", pay: pay.value, pub: type === "income" ? false : pub, day: Number(day.value), type, since: ymKey(thisMonth()) };
+    try {
+      await S.store.setPrefs(me(), { recurring: [...items(), it] });
+      S.prefs.recurring = [...items().filter(x => x.id !== it.id), it];
+      name.value = ""; amount.value = ""; err.textContent = "";
+      ok(Number(day.value) <= new Date().getDate() ? "登録しました。今月の分も記録しました" : `登録しました。毎月${it.day}日に記録されます`);
+      S.recurDone = false; runRecurring(); draw();
+    } catch { err.textContent = "保存できませんでした。通信状態を確認してください"; }
+  };
+  drawCat(); draw();
+  handle = openSheet(h("div", { class: "stack" }, h("div", { class: "head" }, h("h2", null, "固定費・毎月の収入")),
+    h("p", { class: "help" }, "登録した日になると、アプリを開いたときに自動で記録します（スマホを複数使っても二重にはなりません）。"),
+    box,
+    h("div", { class: "card stack", style: "gap:8px" }, h("p", { class: "label", style: "margin:0" }, "新しく登録"),
+      segmented([["expense", "支出"], ["income", "収入"]], type, (v) => { type = v; drawCat(); }, "支出か収入か"),
+      name, h("div", { class: "tworow" }, h("div", null, amount), h("div", null, day)), catWrap, pay,
+      h("div", { class: "vis" }, h("div", { class: "t" }, h("strong", null, "友達に公開する"), h("small", null, "支出だけ。オフなら自分だけに見えます")), switchEl("rcPub", false, (v) => { pub = v; }, "友達に公開する")),
+      err, h("button", { type: "button", class: "btn primary press", onclick: add }, "登録する"))), { tall: true, label: "固定費" });
+}
+
+/* ================= category editor ================= */
+function catEditSheet() {
+  let handle, type = "expense", color = 3, subFor = "食費";
+  const save = async (patch, msg) => { try { await S.store.setPrefs(me(), patch); Object.assign(S.prefs, patch); MY = { cats: S.prefs.myCats || [], extra: S.prefs.subExtra || {} }; if (msg) ok(msg); draw(); } catch { fail("保存できませんでした"); } };
+  const nameTaken = (n) => allCats().some(c => c.id === n);
+  const box = h("div", { class: "stack" });
+  const draw = () => {
+    const mine = MY.cats;
+    const nm = h("input", { class: "text", id: "ceName", maxlength: 8, placeholder: "カテゴリ名（8文字まで）" });
+    const gl = h("input", { class: "text", id: "ceIcon", maxlength: 1, placeholder: "字", style: "width:56px;text-align:center", "aria-label": "アイコンの文字" });
+    const err = h("div", { class: "err", role: "alert" });
+    const colors = h("div", { class: "swatches", role: "radiogroup", "aria-label": "色" }, Array.from({ length: 10 }, (_, i) => h("button", { type: "button", role: "radio", "aria-checked": String(color === i), "aria-label": `色${i + 1}`, style: `background:${cvar(i)}`, onclick: () => { color = i; draw(); } })));
+    const sc = catOf(subFor), extra = MY.extra[subFor] || [];
+    const base = (CAT[subFor]?.subs || []);
+    const subIn = h("input", { class: "text", id: "ceSub", maxlength: 12, placeholder: "内容を追加（例：ランチ）" });
+    fill(box,
+      h("div", { class: "card stack", style: "gap:8px" }, h("p", { class: "label", style: "margin:0" }, "自分のカテゴリ"),
+        mine.length ? mine.map(c => h("div", { class: "row rcrow" }, catIcon(c.id), h("div", { class: "grow" }, h("strong", null, c.id), h("small", { class: "help", style: "display:block" }, c.type === "income" ? "収入" : "支出")),
+          h("button", { type: "button", class: "linklike", onclick: async () => {
+            const n = (prompt2 && await prompt2("新しい名前", c.id)) || ""; const v = n.trim().slice(0, 8);
+            if (!v || v === c.id) return; if (nameTaken(v)) { warn("同じ名前のカテゴリがあります"); return; }
+            const ex = { ...MY.extra }; if (ex[c.id]) { ex[v] = ex[c.id]; delete ex[c.id]; }
+            save({ myCats: mine.map(x => x.id === c.id ? { ...x, id: v } : x), subExtra: ex }, "名前を変えました（前の記録は元の名前のままです）");
+          } }, "名前"),
+          h("button", { type: "button", class: "linklike danger", onclick: async () => {
+            if (!await confirmModal({ title: `「${c.id}」を消しますか？`, body: "これまでの記録は消えずに残ります。", okLabel: "消す", danger: true })) return;
+            const ex = { ...MY.extra }; delete ex[c.id]; save({ myCats: mine.filter(x => x.id !== c.id), subExtra: ex }, "消しました");
+          } }, "消す"))) : h("p", { class: "help" }, "自分だけのカテゴリを追加できます（例：ペット、推し活、車）。"),
+        segmented([["expense", "支出"], ["income", "収入"]], type, (v) => { type = v; }, "支出か収入か"),
+        h("div", { class: "row", style: "flex-wrap:nowrap" }, gl, h("div", { style: "flex:1;min-width:0" }, nm)), colors, err,
+        h("button", { type: "button", class: "btn primary press", onclick: () => {
+          const v = nm.value.trim().slice(0, 8);
+          if (!v) { err.textContent = "名前を入れてください"; return; }
+          if (nameTaken(v)) { err.textContent = "同じ名前のカテゴリがあります"; return; }
+          if (mine.length >= 20) { err.textContent = "追加できるのは20個までです"; return; }
+          save({ myCats: [...mine, { id: v, g: (gl.value.trim() || v).slice(0, 1), c: color, type, subs: [] }] }, `「${v}」を追加しました`);
+        } }, "カテゴリを追加")),
+      h("div", { class: "card stack", style: "gap:8px" }, h("p", { class: "label", style: "margin:0" }, "内容（サブ項目）を増やす"),
+        (() => { const sel = h("select", { class: "text", id: "ceFor", "aria-label": "どのカテゴリに追加するか" }, allCats().map(c => h("option", { value: c.id, selected: c.id === subFor ? true : null }, c.id))); sel.addEventListener("change", () => { subFor = sel.value; draw(); }); return sel; })(),
+        h("div", { class: "chips", style: "flex-wrap:wrap" }, sc.subs.map(sb => extra.includes(sb)
+          ? h("button", { type: "button", class: "chip", "aria-label": `${sb}を消す`, onclick: () => save({ subExtra: { ...MY.extra, [subFor]: extra.filter(x => x !== sb) } }) }, sb, " ×")
+          : h("span", { class: "chip", style: "opacity:.7" }, sb)), !sc.subs.length ? h("span", { class: "help" }, "まだありません") : null),
+        h("form", { class: "row", style: "flex-wrap:nowrap", onsubmit: (e) => {
+          e.preventDefault(); const v = subIn.value.trim().slice(0, 12);
+          if (!v || sc.subs.includes(v)) return; if (extra.length >= 15) { warn("1つのカテゴリに追加できるのは15個までです"); return; }
+          save({ subExtra: { ...MY.extra, [subFor]: [...extra, v] } }, `「${subFor}」に「${v}」を追加しました`);
+        } }, h("div", { style: "flex:1;min-width:0" }, subIn), h("button", { type: "submit", class: "btn small primary press" }, "追加")),
+        h("p", { class: "help", style: "font-size:.72rem" }, "× が付いているのが自分で追加した内容です。もともとの内容は消せません。")));
+  };
+  draw();
+  handle = openSheet(h("div", { class: "stack" }, h("div", { class: "head" }, h("h2", null, "カテゴリの編集")), box), { tall: true, label: "カテゴリの編集" });
+}
+// Small text prompt (no browser dialogs).
+function prompt2(title, value) {
+  return new Promise((res) => {
+    const inp = h("input", { class: "text", id: "p2", maxlength: 8, value: value || "" });
+    let done = false, handle;
+    const fin = (v) => { if (done) return; done = true; closeSheet(handle); res(v); };
+    handle = openSheet(h("form", { class: "stack", onsubmit: (e) => { e.preventDefault(); fin(inp.value); } }, h("div", { class: "head" }, h("h2", null, title)), inp,
+      h("div", { class: "row" }, h("button", { type: "button", class: "btn press", onclick: () => fin(null) }, "やめる"), h("button", { type: "submit", class: "btn primary press" }, "決定"))), { label: title, onClose: () => { if (!done) { done = true; res(null); } } });
+    setTimeout(() => inp.focus(), 250);
+  });
 }
 
 /* ================= PayPay import ================= */
@@ -1645,7 +1995,7 @@ function importReview(rows) {
   };
   const list = h("div", { class: "card", style: "padding:4px 14px" }, sortEntries(rows).map(r => {
     const cb = h("input", { type: "checkbox", class: "cbx", "aria-label": `${r.who} ${r.amount}円を取り込む`, checked: r.on && !r.done ? true : null, disabled: r.done ? true : null });
-    const sel = h("select", { "aria-label": "カテゴリ", disabled: r.done ? true : null }, CATS.map(c => h("optgroup", { label: c.id },
+    const sel = h("select", { "aria-label": "カテゴリ", disabled: r.done ? true : null }, expCats().map(c => h("optgroup", { label: c.id },
       h("option", { value: c.id + "|", selected: c.id === r.category && !r.sub ? true : null }, c.id),
       c.subs.map(sb => h("option", { value: c.id + "|" + sb, selected: c.id === r.category && sb === r.sub ? true : null }, `${c.id} › ${sb}`)))));
     const row = h("div", { class: "imp" + (r.on && !r.done ? "" : " off") }, cb, h("span", { class: "who2" }, r.who || r.kind || "PayPay"), h("span", { class: "num" }, yen(r.amount)),
@@ -1693,6 +2043,7 @@ function refreshDrawer(force) {
     S.code ? [mi("invite", "このグループに友達を招待", inviteSheet), mi("leave", "このグループを抜ける", leaveSheet)] : null,
     h("h3", null, "記録"),
     mi("shield", "共有設定", shareSheet), mi("star", "よく使う項目", () => favSheet({ type: "expense", cat: "食費", sub: "", memo: "", shop: "", pay: "", amount: "" })), mi("budget", "予算", budgetSheet),
+    mi("repeat", "固定費・毎月の収入", recurringSheet), mi("tag", "カテゴリの編集", catEditSheet),
     mi("paypay", "PayPayの履歴を取り込む", importSheet), mi("csv", "CSVで保存", exportCSV),
     h("h3", null, "設定"),
     mi("theme", "表示テーマ", themeSheet), mi("user", "アカウント", accountSheet),

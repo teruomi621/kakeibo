@@ -5,7 +5,8 @@ rules_version = '2';
 // ・ログインしていない人は、何も読めない・書けない
 // ・自分の家計簿を書き込み・修正・削除できるのは本人だけ（友達の家計簿は読むだけ）
 // ・公開の記録を読めるのは、同じグループに入っていて、本人が「見せない」にしていない人だけ
-// ・非公開の記録・予算・よく使う項目・共有設定は、本人しか読めない
+// ・非公開の記録・予算・よく使う項目・共有設定・グループの招待コードは、本人しか読めない
+// ・友達に見えるのは表示名（profile）と、公開された記録・そのいいね/コメントだけ
 // ・「共有しない」にした費目の記録は、公開側に書き込めない
 // ・グループには、実際にメンバー登録した人しか入れない（グループの一覧は誰も取れない）
 service cloud.firestore {
@@ -39,7 +40,7 @@ service cloud.firestore {
         && (!('shop' in d) || (d.shop is string && d.shop.size() <= 40))
         && (!('memo' in d) || (d.memo is string && d.memo.size() <= 80))
         && (!('pay' in d) || (d.pay is string && d.pay.size() <= 12))
-        && (!('source' in d) || d.source == 'paypay');
+        && (!('source' in d) || d.source in ['paypay', 'recurring']);
     }
     // グループ一覧は「抜ける（減らす）」か「1つ追加」だけ。追加できるのは、実際にメンバー登録したグループだけ
     function groupsChangeOk() {
@@ -59,27 +60,45 @@ service cloud.firestore {
     }
 
     match /users/{uid} {
-      // 名前とグループ一覧は、同じグループの人が読める（名前を表示するため）
-      allow read: if isSelf(uid) || sharesGroupWith(uid);
+      // グループ一覧（招待コード）は本人だけが読める。友達に見せる名前は profile に分けています
+      allow read: if isSelf(uid);
       allow create, update: if isSelf(uid) && validUser();
       allow delete: if false;
 
+      // 表示名（同じグループの人が読める）
+      match /profile/{pid} {
+        allow read: if isSelf(uid) || sharesGroupWith(uid);
+        allow write: if isSelf(uid) && request.resource.data.keys().hasOnly(['name'])
+          && request.resource.data.name is string && request.resource.data.name.size() > 0 && request.resource.data.name.size() <= 20;
+      }
       // 公開の記録
       match /entries/{eid} {
         allow read: if canReadPublicOf(uid);
         allow create, update: if isSelf(uid) && validEntry() && categoryShareable(uid);
         allow delete: if isSelf(uid);
+        // いいね・コメント：記録を見られる人だけ。自分の分だけ書ける。記録の持ち主は消せる
+        match /reactions/{rid} {
+          allow read: if canReadPublicOf(uid);
+          allow create, update: if isSelf(rid) && canReadPublicOf(uid)
+            && request.resource.data.keys().hasOnly(['like', 'text', 'at'])
+            && (!('like' in request.resource.data) || request.resource.data.like is bool)
+            && (!('text' in request.resource.data) || (request.resource.data.text is string && request.resource.data.text.size() <= 60));
+          allow delete: if isSelf(rid) || isSelf(uid);
+        }
       }
       // 非公開の記録（本人だけ）
       match /private/{eid} {
         allow read, delete: if isSelf(uid);
         allow create, update: if isSelf(uid) && validEntry();
       }
-      // 予算・よく使う項目・支出ゼロの日（本人だけ）
+      // 予算・よく使う項目・支出ゼロの日・固定費・自分のカテゴリ（本人だけ）
       match /prefs/{pid} {
         allow read: if isSelf(uid);
         allow write: if isSelf(uid)
-          && request.resource.data.keys().hasOnly(['budget', 'favs', 'catBudgets', 'noSpend'])
+          && request.resource.data.keys().hasOnly(['budget', 'favs', 'catBudgets', 'noSpend', 'recurring', 'myCats', 'subExtra'])
+          && (!('recurring' in request.resource.data) || (request.resource.data.recurring is list && request.resource.data.recurring.size() <= 30))
+          && (!('myCats' in request.resource.data) || (request.resource.data.myCats is list && request.resource.data.myCats.size() <= 20))
+          && (!('subExtra' in request.resource.data) || request.resource.data.subExtra is map)
           && (!('budget' in request.resource.data) || (request.resource.data.budget is int && request.resource.data.budget >= 0))
           && (!('favs' in request.resource.data) || (request.resource.data.favs is list && request.resource.data.favs.size() <= 20))
           && (!('catBudgets' in request.resource.data) || request.resource.data.catBudgets is map)
