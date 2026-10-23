@@ -401,6 +401,8 @@ const S = {
   subs: { me: null, prefs: null, share: null, group: [], data: [] }, personSubs: {},
   startDismissed: false, refreshing: false, donutPrev: {}, nums: {},
   joinParam: normCode(new URLSearchParams(location.search).get("join")),
+  // ?add=1 opens the entry page right away (for an iPhone Shortcuts widget / home-screen shortcut)
+  openAddOnStart: new URLSearchParams(location.search).get("add") === "1",
 };
 const me = () => S.user?.uid;
 const isMe = (uid) => uid === me();
@@ -627,9 +629,10 @@ function onSignedIn(user) {
     groups.forEach(c => { if (!(c in S.groupNames)) { S.groupNames[c] = ""; S.store.getGroup(c).then(g => { S.groupNames[c] = g?.name || "グループ"; queueRender(); refreshDrawer(); }).catch(() => {}); } });
     if (first) {
       hideFull();
-      if (S.joinParam && !groups.includes(S.joinParam)) joinSheet(S.joinParam);
-      else if (!groups.length && !S.startDismissed) showStart();
       history.replaceState(null, "", location.pathname);
+      if (S.joinParam && !groups.includes(S.joinParam)) joinSheet(S.joinParam);
+      else if (S.openAddOnStart) { S.openAddOnStart = false; S.startDismissed = true; openEntry(); }
+      else if (!groups.length && !S.startDismissed) showStart();
     }
     queueRender(); refreshDrawer();
   });
