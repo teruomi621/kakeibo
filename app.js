@@ -397,7 +397,7 @@ const S = {
   code: null, group: null, groupNames: {}, memberIds: [], people: {},
   data: {}, priv: [], loaded: {}, privLoaded: false, denied: {},
   viewing: null, ym: thisMonth(), tab: "home",
-  list: { q: "", type: "all", cat: "" }, an: { period: "month", sel: "", metric: "amount" },
+  list: { q: "", type: "all", cat: "" }, an: { period: "month", sel: "" },
   subs: { me: null, prefs: null, share: null, group: [], data: [] }, personSubs: {},
   startDismissed: false, refreshing: false, donutPrev: {}, nums: {},
   joinParam: normCode(new URLSearchParams(location.search).get("join")),
@@ -899,7 +899,7 @@ function renderAnalysis() {
   if (A.period !== "6m") duo.append(budgetCard(uid, ym));
   duo.append(trendCard(uid));
   kids.push(duo);
-  kids.push(heatmapCard(uid, A.period === "6m" ? S.ym : ym));
+  kids.push(calendarCard(uid, A.period === "6m" ? S.ym : ym));
   if (A.period !== "6m") kids.push(compareCard(uid, ym));
   if (!mine) kids.push(h("p", { class: "help", style: "text-align:center" }, "友達が公開した記録だけで集計しています。非公開の記録は含まれません。"));
   fill(scr, h("div", { class: "stack" }, kids));
@@ -1004,38 +1004,42 @@ function trendCard(uid) {
   requestAnimationFrame(() => requestAnimationFrame(() => bars.forEach(([r, y]) => { r.setAttribute("y", y); r.setAttribute("height", Math.max(0, H - bottom - y)); })));
   return h("div", { class: "card" }, h("p", { class: "label" }, "6か月の推移"), chart);
 }
-function heatmapCard(uid, ym) {
-  const A = S.an, mine = isMe(uid), all = inMonth(recordsOf(uid), ym).filter(isExp);
+// Month calendar: each day shows how much was spent. Days with no record and days marked
+// "支出ゼロ" are kept visually distinct.
+function calendarCard(uid, ym) {
+  const mine = isMe(uid), all = inMonth(recordsOf(uid), ym), exp = all.filter(isExp);
   const noSpend = new Set(mine ? (S.prefs.noSpend || []) : []);
-  const byDay = {}; all.forEach(x => { const o = byDay[x.date] = byDay[x.date] || { a: 0, n: 0 }; o.a += x.amount; o.n++; });
-  const vals = Object.values(byDay).map(o => A.metric === "amount" ? o.a : o.n).sort((a, b) => a - b);
-  const q = (p) => vals.length ? vals[Math.min(vals.length - 1, Math.floor(p * vals.length))] : 0;
-  const cuts = [q(.25), q(.5), q(.75)];
-  const first = new Date(ym.y, ym.m - 1, 1), lead = first.getDay(), n = daysIn(ym), weeks = Math.ceil((lead + n) / 7), tdy = today();
-  const grid = h("div", { class: "heat", style: `--weeks:${weeks}`, role: "grid", "aria-label": `${ym.m}月の日別の支出` });
-  for (let r = 0; r < 7; r++) {
-    grid.append(h("span", { class: "wd" }, r % 2 ? WD[r] : ""));
-    for (let w = 0; w < weeks; w++) {
-      const day = w * 7 + r - lead + 1;
-      if (day < 1 || day > n) { grid.append(h("span", { class: "out" })); continue; }
-      const d = `${ymKey(ym)}-${pad(day)}`, o = byDay[d];
-      let cls, label;
-      if (d > tdy) { cls = "future"; label = "これからの日"; }
-      else if (o) { const v = A.metric === "amount" ? o.a : o.n; cls = v <= cuts[0] ? "l1" : v <= cuts[1] ? "l2" : v <= cuts[2] ? "l3" : "l4"; label = `${yen(o.a)}・${o.n}件`; }
-      else if (noSpend.has(d)) { cls = "zero"; label = "支出ゼロ"; }
-      else { cls = "none"; label = "記録なし"; }
-      grid.append(h("button", { type: "button", class: cls + (d === tdy ? " today" : ""), "aria-label": `${ym.m}月${day}日 ${label}`, title: `${ym.m}/${day} ${label}`, onclick: () => daySheet(uid, d) }));
-    }
-  }
+  const byDay = {}; exp.forEach(x => byDay[x.date] = (byDay[x.date] || 0) + x.amount);
+  const incDays = new Set(all.filter(x => x.type === "income").map(x => x.date));
+  const max = Math.max(1, ...Object.values(byDay));
+  const lead = new Date(ym.y, ym.m - 1, 1).getDay(), n = daysIn(ym), tdy = today();
+  const total = sumOf(exp), daysWith = Object.keys(byDay).length;
+  const daysSoFar = ymKey(ym) === ymKey(thisMonth()) ? new Date().getDate() : ymKey(ym) < ymKey(thisMonth()) ? n : 0;
+  const grid = h("div", { class: "mcal", role: "grid", "aria-label": `${ym.m}月のカレンダー` },
+    WD.map((w, i) => h("span", { class: "wd" + (i === 0 ? " sun" : i === 6 ? " sat" : "") }, w)),
+    Array.from({ length: lead }, () => h("span", { class: "out" })),
+    Array.from({ length: n }, (_, i) => {
+      const d = `${ymKey(ym)}-${pad(i + 1)}`, v = byDay[d], dow = (lead + i) % 7;
+      const future = d > tdy, zero = !v && noSpend.has(d);
+      const level = v ? Math.min(4, 1 + Math.floor(v / max * 4 - 0.0001)) : 0;
+      const label = future ? "これからの日" : v ? yen(v) : zero ? "支出ゼロ" : "記録なし";
+      return h("button", { type: "button", class: ["day", future ? "future" : "", v ? "has l" + level : "", zero ? "zero" : "", d === tdy ? "today" : ""].filter(Boolean).join(" "),
+        "aria-label": `${ym.m}月${i + 1}日 ${label}`, onclick: () => daySheet(uid, d) },
+        h("span", { class: "dn" + (dow === 0 ? " sun" : dow === 6 ? " sat" : "") }, i + 1),
+        v ? h("span", { class: "dv num" }, yenShort(v)) : zero ? h("span", { class: "dv zero" }, "0円") : null,
+        incDays.has(d) ? h("i", { class: "inc", "aria-hidden": "true" }) : null);
+    }));
   return h("div", { class: "card" },
-    h("div", { style: "display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:12px" }, h("p", { class: "label", style: "margin:0" }, `${ym.m}月のヒートマップ`),
-      h("div", { style: "width:140px" }, segmented([["amount", "金額"], ["count", "件数"]], A.metric, (v) => { A.metric = v; setTimeout(renderAnalysis, 150); }, "表示する指標"))),
+    h("div", { style: "display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:10px" },
+      h("p", { class: "label", style: "margin:0" }, `${ym.y}年${ym.m}月のカレンダー`), h("span", { class: "num", style: "font-weight:700" }, yen(total))),
     grid,
-    h("div", { class: "heatlegend" },
-      h("span", null, h("i", { style: "border:1px dashed var(--line)" }), "記録なし"),
-      mine ? h("span", null, h("i", { style: "background:var(--brand-soft)" }), "支出ゼロ") : null,
-      h("span", null, "少", ...["#A9D1C2", "#6FAE97", "#3A8A6F", "var(--c0)"].map(c => h("i", { style: `background:${c};margin:0 2px 0 0` })), "多")),
-    h("p", { class: "help", style: "margin-top:8px;font-size:.72rem" }, mine ? "記録がない日と、本当に使わなかった日は分けて表示します。マスをタップすると、その日の明細や「支出ゼロの日」の記録ができます。" : "公開された記録がある日だけ色が付きます。"));
+    h("div", { class: "calsum" },
+      h("span", null, "使った日 ", h("b", { class: "num" }, `${daysWith}日`)),
+      daysSoFar ? h("span", null, "1日平均 ", h("b", { class: "num" }, yen(total / daysSoFar))) : null,
+      daysWith ? h("span", null, "いちばん多い日 ", h("b", { class: "num" }, yen(Math.max(...Object.values(byDay))))) : null),
+    h("p", { class: "help", style: "margin-top:6px;font-size:.72rem" }, mine
+      ? "日付をタップすると、その日の明細が開きます。使わなかった日は「支出ゼロ」にできます。緑の点は収入がある日です。"
+      : "公開された記録がある日だけ金額が出ます。"));
 }
 function daySheet(uid, d) {
   const mine = isMe(uid), list = sortEntries(recordsOf(uid).filter(x => x.date === d));
