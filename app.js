@@ -334,7 +334,9 @@ async function firebaseStore() {
   auth.languageCode = "ja";
   const setKeep = (keep) => A.setPersistence(auth, keep ? A.indexedDBLocalPersistence : A.browserSessionPersistence).catch(() => A.setPersistence(auth, keep ? A.browserLocalPersistence : A.browserSessionPersistence));
   let db;
-  try { db = F.initializeFirestore(app, { localCache: F.persistentLocalCache() }); } catch { db = F.getFirestore(app); }
+  // Keep an offline copy on the phone only when "ログインしたままにする" is on; otherwise memory only.
+  try { db = F.initializeFirestore(app, { localCache: ls.get("kakeibo.keep") === "0" ? F.memoryLocalCache() : F.persistentLocalCache() }); } catch { db = F.getFirestore(app); }
+  if (ls.get("kakeibo.keep") === "0") F.clearIndexedDbPersistence(db).catch(() => {}); // remove any copy left from before
   const { doc, collection, getDoc, getDocs, setDoc, updateDoc, deleteDoc, addDoc, onSnapshot, query, where, limit, serverTimestamp, arrayUnion, arrayRemove, writeBatch } = F;
   const uRef = (uid) => doc(db, "users", uid);
   const gRef = (code) => doc(db, "groups", code);
@@ -350,15 +352,21 @@ async function firebaseStore() {
   return {
     demo: false,
     onAuth(cb) { A.onAuthStateChanged(auth, u => cb(u ? { uid: u.uid, email: u.email } : null)); },
-    async signIn(email, pw, keep = true) { await setKeep(keep); await A.signInWithEmailAndPassword(auth, email, pw); },
+    async signIn(email, pw, keep = true) { ls.set("kakeibo.keep", keep ? null : "0"); await setKeep(keep); await A.signInWithEmailAndPassword(auth, email, pw); },
     async signUp(email, pw, name, keep = true) {
-      await setKeep(keep);
+      ls.set("kakeibo.keep", keep ? null : "0"); await setKeep(keep);
       const c = await A.createUserWithEmailAndPassword(auth, email, pw);
       await setDoc(uRef(c.user.uid), { name, groups: [], current: null, createdAt: serverTimestamp() });
       await setDoc(prRef(c.user.uid), { name });
     },
     async resetPassword(email) { await A.sendPasswordResetEmail(auth, email); },
-    async signOut() { await A.signOut(auth); },
+    // On sign-out, also wipe the offline copy of the data from this phone, then start fresh.
+    async signOut() {
+      await A.signOut(auth);
+      try { await F.terminate(db); await F.clearIndexedDbPersistence(db); } catch {}
+      ["kakeibo.pay", "kakeibo.cat", "kakeibo.cont"].forEach(k => ls.set(k, null));
+      setTimeout(() => location.reload(), 100);
+    },
     watchMe(uid, cb) { return onSnapshot(uRef(uid), s => cb(s.exists() ? s.data() : null), () => cb(undefined)); },
     async ensureMe(uid, name) { const s = await getDoc(uRef(uid)); if (!s.exists()) await setDoc(uRef(uid), { name, groups: [], current: null, createdAt: serverTimestamp() }); },
     async updateMe(uid, patch) { await updateDoc(uRef(uid), patch); if (patch.name) await setDoc(prRef(uid), { name: patch.name }); },
@@ -702,6 +710,8 @@ function onSignedIn(user) {
     if (first) S.store.ensureProfile(user.uid, doc.name).catch(() => {});
     const groups = doc.groups || [];
     const want = groups.includes(doc.current) ? doc.current : groups[0] || null;
+    // the server checks friends' access against the group you are currently viewing, so keep it set
+    if (want && want !== doc.current) S.store.updateMe(user.uid, { current: want }).catch(() => {});
     if (first || want !== S.code) switchGroup(want);
     groups.forEach(c => { if (!(c in S.groupNames)) { S.groupNames[c] = ""; S.store.getGroup(c).then(g => { S.groupNames[c] = g?.name || "グループ"; queueRender(); refreshDrawer(); }).catch(() => {}); } });
     if (first) {
@@ -1895,7 +1905,8 @@ async function exportCSV() {
   if (job.error) { fail("記録を読み込めませんでした。通信状態を確認してください"); return; }
   const all = spanRecords(me(), job, "all", "all");
   if (!all.length) { warn("保存する記録がまだありません"); return; }
-  const esc = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // a leading ' stops spreadsheet apps from treating text like =HYPERLINK(...) as a formula
+  const esc = (v) => { let t = String(v ?? ""); if (/^[=+\-@\t\r]/.test(t) && !/^-?\d+$/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
   const lines = [["日付", "時刻", "種類", "金額", "カテゴリ", "内容", "店舗", "メモ", "支払方法", "公開", "取込元"].map(esc).join(",")]
     .concat(sortEntries(all).reverse().map(x => [x.date, x.time, x.type === "income" ? "収入" : "支出", x.amount, x.category, x.sub, x.shop, x.memo, x.pay, x.priv ? "非公開" : "公開", x.source || ""].map(esc).join(",")));
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv" });
