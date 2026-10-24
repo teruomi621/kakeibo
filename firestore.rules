@@ -16,9 +16,14 @@ service cloud.firestore {
     function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
     function userDoc(uid) { return /databases/$(database)/documents/users/$(uid); }
     function shareDoc(uid) { return /databases/$(database)/documents/users/$(uid)/share/main; }
-    // 相手と自分が、少なくとも1つ同じグループに入っているか
+    // 相手と自分が、いま開いているグループに「実際にメンバー登録して」一緒に入っているか
+    // （グループを抜けたあとにコードだけ手元に残しても、読めないようにしています）
     function sharesGroupWith(uid) {
-      return signedIn() && get(userDoc(uid)).data.groups.hasAny(get(userDoc(request.auth.uid)).data.groups);
+      let c = get(userDoc(request.auth.uid)).data.get('current', null);
+      return signedIn() && c != null
+        && c in get(userDoc(uid)).data.get('groups', [])
+        && exists(/databases/$(database)/documents/groups/$(c)/members/$(request.auth.uid))
+        && exists(/databases/$(database)/documents/groups/$(c)/members/$(uid));
     }
     // 持ち主が、読もうとしている人を「見せない」にしていないか
     function notBlockedBy(uid) {
