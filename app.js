@@ -364,7 +364,7 @@ async function firebaseStore() {
     async signOut() {
       await A.signOut(auth);
       try { await F.terminate(db); await F.clearIndexedDbPersistence(db); } catch {}
-      ["kakeibo.pay", "kakeibo.cat", "kakeibo.cont"].forEach(k => ls.set(k, null));
+      ["kakeibo.pay", "kakeibo.cat", "kakeibo.cont", SHOP_KEY].forEach(k => ls.set(k, null));
       setTimeout(() => location.reload(), 100);
     },
     watchMe(uid, cb) { return onSnapshot(uRef(uid), s => cb(s.exists() ? s.data() : null), () => cb(undefined)); },
@@ -1416,9 +1416,34 @@ function peopleCompare() {
 
 /* ================= ENTRY SHEET (add / edit) ================= */
 function myHistory() { return sortEntries(recordsOf(me())); }
-function suggestShops(q) {
+// Shops you have used, remembered on this phone (only the shop name, category and payment), so
+// suggestions keep working for places you went to months ago without reading old records again.
+const SHOP_KEY = "kakeibo.shops";
+function shopMemory() { try { return JSON.parse(ls.get(SHOP_KEY) || "{}") || {}; } catch { return {}; } }
+function rememberShop(x) {
+  if (!x.shop || x.type === "income") return;
+  const m = shopMemory(), o = m[x.shop] || { n: 0 };
+  m[x.shop] = { c: x.category, s: x.sub || "", p: x.pay || o.p || "", n: Math.min(999, (o.n || 0) + 1), t: Date.now() };
+  const keys = Object.keys(m);
+  if (keys.length > 300) keys.sort((a, b) => m[a].t - m[b].t).slice(0, keys.length - 300).forEach(k => delete m[k]);
+  ls.set(SHOP_KEY, JSON.stringify(m));
+}
+// Shops for a category (and sub-item): yours first (most used / most recent), then well-known chains.
+function shopsFor(cat, sub, max = 8) {
+  const score = {}, info = {}, now = Date.now();
+  const add = (shop, c, s, p, w) => { if (!shop || c !== cat || (sub && s !== sub)) return; score[shop] = (score[shop] || 0) + w; info[shop] = info[shop] || { p }; };
+  myHistory().forEach((x, i) => { if (x.type !== "income") add(x.shop, x.category, x.sub, x.pay, 1 + Math.max(0, 20 - i) / 20); });
+  Object.entries(shopMemory()).forEach(([k, v]) => add(k, v.c, v.s, v.p, Math.min(v.n, 30) * .5 + Math.max(0, 30 - (now - v.t) / 864e5) / 30));
+  const mine = Object.keys(score).sort((a, b) => score[b] - score[a]).slice(0, max).map(k => ({ shop: k, pay: info[k].p, mine: true }));
+  const known = KNOWN_SHOPS.filter(k => !score[k]).filter(k => { const [c, s] = guessCat(k); return c === cat && (!sub || s === sub); }).slice(0, Math.max(0, max - mine.length)).map(k => ({ shop: k, mine: false }));
+  return mine.concat(known);
+}
+function suggestShops(q, st) {
   const hist = myHistory(), score = {}, meta = {};
   hist.forEach((x, i) => { if (!x.shop) return; score[x.shop] = (score[x.shop] || 0) + 1 + Math.max(0, 30 - i) / 10; meta[x.shop] = meta[x.shop] || x; });
+  Object.entries(shopMemory()).forEach(([k, v]) => { score[k] = (score[k] || 0) + Math.min(v.n, 30) * .3; meta[k] = meta[k] || { category: v.c, sub: v.s, pay: v.p }; });
+  // with an empty box, shops of the category you picked come first
+  if (!q && st?.type === "expense" && (st.catTouched || st.sub)) Object.keys(score).forEach(k => { if (meta[k].category === st.cat && (!st.sub || meta[k].sub === st.sub)) score[k] += 1000; });
   const f = fold(q);
   const mine = Object.keys(score).filter(s => !f || fold(s).includes(f)).sort((a, b) => (fold(b).startsWith(f) - fold(a).startsWith(f)) || score[b] - score[a]).slice(0, 6)
     .map(s => ({ value: s, label: s, sub: catLabel(meta[s]) + (meta[s].pay ? "・" + meta[s].pay : ""), tag: "履歴", kind: "shop", hist: meta[s] }));
@@ -1497,7 +1522,7 @@ function openEntry(edit, preset = {}) {
   const memoIn = h("input", { class: "text", id: "enMemo", maxlength: 80, placeholder: "メモ", value: st.memo, enterkeyhint: "done", "aria-label": "メモ" });
   shopIn.addEventListener("input", () => { st.shop = shopIn.value; });
   memoIn.addEventListener("input", () => { st.memo = memoIn.value; });
-  const shopAC = autocomplete(shopIn, suggestShops, (it) => {
+  const shopAC = autocomplete(shopIn, (q) => suggestShops(q, st), (it) => {
     if (it.kind === "cat") { st.type = "expense"; st.cat = it.cat; st.sub = it.subName; st.catTouched = true; draw(); return; }
     st.shop = it.value;
     if (it.hist) { if (!st.catTouched) { st.cat = it.hist.category; st.sub = it.hist.sub; } if (!st.pay && it.hist.pay) st.pay = it.hist.pay; }
@@ -1547,6 +1572,14 @@ function openEntry(edit, preset = {}) {
     drawAmount(); drawFavs();
   };
   const drawFavs = () => {
+    if (st.type === "expense" && st.sub) {
+      const list = shopsFor(st.cat, st.sub);
+      if (list.length) {
+        fill(favRow, h("span", { class: "lbl" }, "よく行く店"), ...list.map(it => h("button", { type: "button", class: "chip" + (it.mine ? "" : " known") + (st.shop === it.shop ? " on" : ""), "aria-pressed": String(st.shop === it.shop),
+          onclick: () => { const same = st.shop === it.shop; st.shop = same ? "" : it.shop; if (!same && it.pay) st.pay = it.pay; shopIn.value = st.shop; buzz(5); draw(); } }, it.shop)));
+        return;
+      }
+    }
     const favs = (S.prefs.favs || []).filter(f => (f.t || "expense") === st.type), auto = st.type === "expense" ? autoFavs() : [];
     const chip = (f, isFav) => h("button", { type: "button", class: "chip" + (isFav ? " fav" : ""), onclick: () => applyFav(f) },
       catIcon(f.c, true), f.sh || f.m || f.s || f.c, f.a ? h("b", { class: "num" }, yen(f.a)) : null);
@@ -1586,6 +1619,7 @@ function openEntry(edit, preset = {}) {
     const pub = st.pub && !hiddenNow().includes(st.cat);
     const data = { type: st.type, date: st.date, time: st.time || (isEdit ? edit.time || nowHM() : nowHM()), amount, category: st.cat, sub: st.sub, shop: st.shop.slice(0, 40), memo: st.memo.slice(0, 80), pay: st.pay };
     if (edit?.source) data.source = edit.source;
+    rememberShop(data);
     st.busy = true; drawAmount();
     const alertsBefore = !isEdit && st.type === "expense" ? budgetAlerts() : null;
     try {
