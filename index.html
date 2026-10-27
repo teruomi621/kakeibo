@@ -87,7 +87,7 @@ button { cursor: pointer; touch-action: manipulation; -webkit-user-select: none;
 /* ---------- shell ---------- */
 .app { display: flex; flex-direction: column; height: 100%; max-width: 640px; margin: 0 auto; position: relative; }
 .demo-banner { background: var(--warn-soft); color: var(--warn); font-size: var(--fs-xs); text-align: center; padding: 3px 8px; font-weight: 600; flex: none; }
-.topbar { flex: none; display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 6px; padding-block: max(8px, env(safe-area-inset-top, 0px)) 6px; background: var(--bg); z-index: 5; }
+.topbar { flex: none; display: grid; grid-template-columns: 40px 1fr 40px auto; align-items: center; gap: 6px; padding-block: max(8px, env(safe-area-inset-top, 0px)) 6px; background: var(--bg); z-index: 5; }
 .iconbtn { width: 40px; height: 40px; border-radius: 12px; border: none; background: none; display: grid; place-items: center; color: var(--ink); }
 .iconbtn svg { width: 22px; height: 22px; }
 .who { display: flex; align-items: center; gap: 8px; min-width: 0; border: none; background: none; padding: 4px 6px; border-radius: 12px; text-align: left; }
@@ -457,8 +457,8 @@ input[type=search]::-webkit-search-cancel-button, input[type=search]::-webkit-se
 .entry .amount .v.ph { color: var(--line); }
 .entry .amount .expr { margin-right: auto; align-self: center; font-size: .82rem; color: var(--muted); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .keypad button[data-k="plus"] { font-size: 1.5rem; color: var(--brand); }
-#menuBtn { position: relative; }
-#menuBtn .dot { position: absolute; top: 3px; right: 1px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--danger); color: #fff; font-size: .62rem; font-weight: 700; display: grid; place-items: center; line-height: 1; }
+#bellBtn { position: relative; }
+#bellBtn .dot { position: absolute; top: 3px; right: 1px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; background: var(--danger); color: #fff; font-size: .62rem; font-weight: 700; display: grid; place-items: center; line-height: 1; }
 .mi .count { margin-left: auto; background: var(--danger); color: #fff; border-radius: 10px; font-size: .7rem; font-weight: 700; padding: 1px 7px; }
 .boot.splash { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; gap: 22px; padding-bottom: 6vh; }
 .boot.splash img { width: 26vw; max-width: 112px; height: auto; border-radius: 22%; box-shadow: var(--sh-2); }
@@ -469,6 +469,13 @@ input[type=search]::-webkit-search-cancel-button, input[type=search]::-webkit-se
 .alertcard strong { display: block; margin-bottom: 4px; color: var(--ink); }
 .alertcard .al { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); color: var(--ink); }
 .alertcard .al.over .num { color: var(--danger); font-weight: 700; }
+.nitem { display: flex; gap: 10px; align-items: center; width: 100%; border: none; background: none; text-align: left; padding: 10px 0; border-bottom: 1px solid var(--line); color: var(--ink); font-size: var(--fs-sm); }
+.nitem:last-child { border-bottom: none; }
+.ncard { padding: 2px 14px; }
+.nic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; flex: none; }
+.nic.warn { background: var(--warn-soft); color: var(--warn); }
+.nic svg { width: 18px; height: 18px; }
+.newdot { width: 8px; height: 8px; border-radius: 50%; background: var(--danger); flex: none; }
 .goalrow { display: flex; gap: 10px; align-items: center; padding: 6px 0; }
 .goalrow .h { display: flex; justify-content: space-between; gap: 8px; font-size: var(--fs-sm); margin-bottom: 4px; }
 .goalrow .bar { height: 8px; }
@@ -646,6 +653,7 @@ details.ocrtext pre { white-space: pre-wrap; font-size: .75rem; background: var(
   <header class="topbar gutter">
     <button type="button" class="iconbtn press" id="menuBtn" aria-label="メニューを開く" aria-expanded="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg></button>
     <button type="button" class="who press" id="whoBtn" aria-label="表示している人を切り替える"></button>
+    <button type="button" class="iconbtn press" id="bellBtn" aria-label="お知らせ"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15zM10 20.5a2.2 2.2 0 0 0 4 0"/></svg></button>
     <div class="monthnav" id="monthnav">
       <button type="button" class="press" id="prevM" aria-label="前の月">‹</button>
       <span id="monthLabel" aria-live="polite">----年--月</span>

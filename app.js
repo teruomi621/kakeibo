@@ -273,6 +273,10 @@ function demoStore() {
     }
   };
   setTimeout(() => { const e = pub.me[pub.me.length - 3]; if (e) inbox.me.push({ id: "n0", from: "ken", eid: e.id, kind: "comment", text: "それ美味しいよね！", at: Date.now() - 3600e3 }, { id: "n1", from: "sakura", eid: e.id, kind: "like", text: "", at: Date.now() - 600e3 }); }, 0);
+  setTimeout(() => {
+    pub.ken.push({ id: "f1", date: today(), time: nowHM(), amount: 680, category: "食費", sub: "カフェ", shop: "スターバックス", memo: "", pay: "PayPay", type: "expense", t: Date.now() - 25 * 60e3 });
+    pub.sakura.push({ id: "f2", date: today(), time: nowHM(), amount: 1280, category: "食費", sub: "昼ごはん", shop: "丸亀製麺", memo: "", pay: "現金", type: "expense", t: Date.now() - 3 * 3600e3 });
+  }, 0);
   gen("me", 1); gen("sakura", 1.1); gen("ken", .8); gen("mama", .9);
   priv.me.push({ id: "p1", date: today(), time: "21:30", amount: 3000, category: "娯楽", sub: "ゲーム", shop: "", memo: "ゲーム課金", pay: "クレジットカード", type: "expense", t: 1 });
   const L = new Set(); const bump = () => L.forEach(f => f());
@@ -858,7 +862,7 @@ function moveTabIndicator() {
 }
 function render() {
   if (!S.user) return;
-  renderHeader();
+  renderHeader(); updateBell();
   if (S.tab === "home") renderHome();
   else if (S.tab === "list") renderList();
   else if (S.tab === "analysis") renderAnalysis();
@@ -1973,24 +1977,64 @@ function inboxText(n) {
   const what = e ? `「${titleOf(e)} ${yen(e.amount)}」` : "あなたの記録";
   return n.kind === "like" ? `${nameOf(n.from)}さんが${what}にいいねしました` : `${nameOf(n.from)}さんが${what}にコメント：${n.text}`;
 }
+// The bell (top right): likes/comments you received, records your friends just added, and budget warnings.
+// Everything except likes/comments is worked out from data already on screen, so it costs no extra reads.
+const seenKey = () => "kakeibo.seen." + me();
+function lastSeen() { const v = Number(ls.get(seenKey())); if (v) return v; const t = Date.now() - 864e5; ls.set(seenKey(), String(t)); return t; }
+function friendNews() {
+  const since = Date.now() - 3 * 864e5, out = [];
+  S.memberIds.filter(u => !isMe(u)).forEach(u => (S.data[u] || []).forEach(x => { if (x.t && x.t > since) out.push({ uid: u, x }); }));
+  return out.sort((a, b) => b.x.t - a.x.t);
+}
+function alertSeenKey(a) { return `${ymKey(thisMonth())}|${a.key}|${a.level}`; }
+function bellState() {
+  const seen = lastSeen(), seenAlerts = (ls.get("kakeibo.seenAlerts." + me()) || "").split(",");
+  const news = friendNews(), alerts = S.prefsLoaded ? budgetAlerts() : [];
+  const unread = (S.inbox || []).length + news.filter(n => n.x.t > seen).length + alerts.filter(a => !seenAlerts.includes(alertSeenKey(a))).length;
+  return { seen, news, alerts, unread };
+}
 function updateBell() {
-  const b = $("menuBtn"); if (!b) return;
-  const n = (S.inbox || []).length;
+  const b = $("bellBtn"); if (!b) return;
+  if (!S.user) { b.querySelector(".dot")?.remove(); return; }
+  const { unread } = bellState();
   b.querySelector(".dot")?.remove();
-  if (n) b.append(h("span", { class: "dot", "aria-hidden": "true" }, n > 9 ? "9+" : String(n)));
-  b.setAttribute("aria-label", n ? `メニューを開く（お知らせ${n}件）` : "メニューを開く");
-  refreshDrawer();
+  if (unread) b.append(h("span", { class: "dot", "aria-hidden": "true" }, unread > 9 ? "9+" : String(unread)));
+  b.setAttribute("aria-label", unread ? `お知らせ（新しいもの${unread}件）` : "お知らせ");
 }
 function inboxSheet() {
-  const shown = (S.inbox || []).slice();
-  const handle = openSheet(h("div", { class: "stack" }, h("div", { class: "head" }, h("h2", null, "お知らせ")),
-    shown.length ? h("div", { class: "card", style: "padding:4px 14px" }, shown.map(n => {
-      const e = recordsOf(me()).find(x => x.id === n.eid);
-      return h("button", { type: "button", class: "row rcrow press", style: "width:100%;border:none;background:none;text-align:left", onclick: () => { if (e) { closeSheet(handle); detailSheet(e, me()); } } },
-        avatar(n.from, 32), h("div", { class: "grow" }, h("span", null, n.kind === "like" ? "❤ " : "💬 ", inboxText(n)), h("small", { class: "help", style: "display:block" }, agoLabel(n.at))));
-    })) : emptyState("お知らせはありません", "友達があなたの記録にいいねやコメントをすると、ここに届きます。", null, "heart"),
-    shown.length ? h("p", { class: "help", style: "text-align:center" }, "見たお知らせは、閉じると消えます。") : null), { label: "お知らせ",
-    onClose: () => { const ids = shown.map(n => n.id); if (ids.length) S.store.clearInbox(me(), ids).catch(() => {}); } });
+  const { seen, news, alerts } = bellState();
+  const shownInbox = (S.inbox || []).slice();
+  const item = (opts) => h("button", { type: "button", class: "nitem press" + (opts.fresh ? " fresh" : ""), onclick: opts.onclick },
+    opts.left, h("div", { class: "grow" }, h("span", null, opts.text), opts.when ? h("small", { class: "help", style: "display:block" }, opts.when) : null), opts.fresh ? h("i", { class: "newdot", "aria-label": "新着" }) : null);
+  let handle;
+  const sections = [];
+  if (alerts.length) sections.push(h("p", { class: "label" }, "予算"), h("div", { class: "card ncard" }, alerts.map(a => item({
+    left: h("span", { class: "nic warn" }, ic("warn")), fresh: true,
+    text: a.over ? `${a.key === "_all" ? "今月の予算" : a.label + "の予算"}を ${yen(-a.left)} 超えています` : `${a.key === "_all" ? "今月の予算" : a.label + "の予算"}の${Math.round(a.pct * 100)}%を使いました（残り ${yen(a.left)}）`,
+    onclick: () => { closeSheet(handle); setViewing(me()); go("analysis"); } }))));
+  if (shownInbox.length) sections.push(h("p", { class: "label" }, "いいね・コメント"), h("div", { class: "card ncard" }, shownInbox.map(n => {
+    const e = recordsOf(me()).find(x => x.id === n.eid);
+    return item({ left: avatar(n.from, 32), fresh: true, text: [n.kind === "like" ? "❤ " : "💬 ", inboxText(n)], when: agoLabel(n.at), onclick: () => { if (e) { closeSheet(handle); detailSheet(e, me()); } } });
+  })));
+  if (news.length) {
+    // several records from the same person in a row are folded into one line
+    const groups = [];
+    news.forEach(n => { const g = groups[groups.length - 1]; if (g && g.uid === n.uid && g.items[0].x.t - n.x.t < 3600e3) g.items.push(n); else groups.push({ uid: n.uid, items: [n] }); });
+    sections.push(h("p", { class: "label" }, "友達の記録（3日以内）"), h("div", { class: "card ncard" }, groups.slice(0, 30).map(g => {
+      const x = g.items[0].x;
+      const text = g.items.length > 1 ? `${nameOf(g.uid)}さんが${g.items.length}件記録しました（${titleOf(x)} ${yen(x.amount)} など）` : `${nameOf(g.uid)}さんが記録しました：${titleOf(x)} ${x.type === "income" ? "+" : ""}${yen(x.amount)}`;
+      return item({ left: avatar(g.uid, 32), fresh: x.t > seen, text, when: agoLabel(x.t), onclick: () => { closeSheet(handle); setViewing(g.uid); go("home"); setTimeout(() => detailSheet(x, g.uid), 250); } });
+    })));
+  }
+  handle = openSheet(h("div", { class: "stack" }, h("div", { class: "head" }, h("h2", null, "お知らせ")),
+    sections.length ? sections : emptyState("お知らせはありません", "友達の記録やコメント、予算の使いすぎがここに届きます。", null, "heart"),
+    shownInbox.length ? h("p", { class: "help", style: "text-align:center" }, "いいね・コメントのお知らせは、閉じると消えます。") : null), { label: "お知らせ",
+    onClose: () => {
+      ls.set(seenKey(), String(Date.now()));
+      ls.set("kakeibo.seenAlerts." + me(), alerts.map(alertSeenKey).join(","));
+      const ids = shownInbox.map(n => n.id); if (ids.length) S.store.clearInbox(me(), ids).catch(() => {});
+      S.inbox = (S.inbox || []).filter(n => !ids.includes(n.id)); updateBell();
+    } });
 }
 function agoLabel(t) {
   const m = Math.round((Date.now() - t) / 60000);
@@ -2347,6 +2391,7 @@ async function boot() {
   $("addBtn").addEventListener("click", () => { buzz(8); openEntry(); });
   $("prevM").onclick = () => shiftMonth(-1); $("nextM").onclick = () => shiftMonth(1);
   $("menuBtn").onclick = openDrawer;
+  $("bellBtn").onclick = inboxSheet;
   $("whoBtn").onclick = () => {
     const ps = people(); if (ps.length < 2) { toast("友達を招待すると、ここで家計簿を切り替えられます"); return; }
     let handle;
